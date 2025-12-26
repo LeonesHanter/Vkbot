@@ -53,6 +53,7 @@ async def init_chats():
                 state_manager=state_manager,
                 target_user_id=config.target_user_id
             )
+    logging.info(f"Инициализировано чатов: {len(chat_states)}")
 
 async def send_new_year_message(bot_api, chat_id: int):
     global last_new_year_message_id
@@ -80,49 +81,83 @@ async def schedule_new_year_messages():
 @bot.on.message()
 async def message_handler(message: Message):
     global bot_id
+    
+    # 🚨 ОТЛАДКА - ЛОГИРУЕМ ВСЕ СООБЩЕНИЯ
+    logging.info(f"📨 peer_id={message.peer_id}, from_id={message.from_id}, text='{message.text[:100]}'")
+    
     if bot_id is None:
         bot_id = message.from_id
-        logging.info(f"Bot ID detected: {bot_id}")
+        logging.info(f"🤖 Bot ID detected: {bot_id}")
 
-    if message.peer_id == (2000000000 + config.source_chat_id):
-        text = message.text
-        if str(bot_id) in text or f"id{bot_id}" in text:
+    # Проверяем source чат
+    expected_peer_id = 2000000000 + config.source_chat_id
+    logging.info(f"🔍 Expected: {expected_peer_id} (source_chat_id={config.source_chat_id}), got: {message.peer_id}")
+    
+    if message.peer_id == expected_peer_id:
+        logging.info("✅ Сообщение из SOURCE чата!")
+        text = message.text or ""
+        
+        # Проверяем упоминание бота
+        bot_id_str = str(bot_id)
+        has_bot_id = bot_id_str in text or f"id{bot_id}" in text
+        logging.info(f"🤖 Bot ID '{bot_id_str}' в тексте: {has_bot_id}")
+        
+        if has_bot_id:
             match = GOLD_PATTERN.search(text)
+            logging.info(f"💰 GOLD_PATTERN: {match}")
+            
             if match:
                 try:
                     gold_amount = int(match.group(1))
+                    logging.info(f"🪙 НАЙДЕНО ЗОЛОТО: {gold_amount}")
+                    
+                    # Ищем активный чат
                     target_chat_id = None
                     for chat in config.chats:
                         if chat.enabled:
                             target_chat_id = chat.chat_id
+                            logging.info(f"🎯 Target chat: {target_chat_id} (enabled)")
                             break
+                    
+                    logging.info(f"📊 chat_states keys: {list(chat_states.keys())}")
+                    
                     if target_chat_id and target_chat_id in chat_states:
+                        # Ищем оригинальное сообщение
                         original_user_message_id = None
                         if message.reply_message:
                             original_user_message_id = message.reply_message.id
+                            logging.info(f"📝 Reply ID: {original_user_message_id}")
                         elif message.fwd_messages:
                             original_user_message_id = message.fwd_messages[0].id
-                        if not original_user_message_id:
-                            logging.info(f"No original user message found for gold {gold_amount}, skipping.")
-                            return
-                        await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
-                except ValueError:
-                    pass
+                            logging.info(f"🔄 Forward ID: {original_user_message_id}")
+                        
+                        if original_user_message_id:
+                            logging.info(f"🚀 ВЫЗЫВАЕМ handle_gold_message({gold_amount}, {original_user_message_id})")
+                            await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
+                            logging.info("✅ handle_gold_message ВЫПОЛНЕН!")
+                        else:
+                            logging.error("❌ НЕТ original_user_message_id!")
+                    else:
+                        logging.error(f"❌ Нет target_chat_id! chats: {[c.chat_id for c in config.chats]}, states: {list(chat_states.keys())}")
+                except ValueError as e:
+                    logging.error(f"❌ ValueError парсинга золота: {e}")
+            else:
+                logging.info("❌ GOLD_PATTERN не найден")
+        else:
+            logging.info("❌ Bot ID не найден в тексте")
     elif message.peer_id == config.target_user_id:
-        text = message.text
-        if message.from_id == bot_id and BLESSING_PATTERN.search(text):
+        logging.info(f"💫 ЛС target_user_id: {message.text[:50]}")
+        if message.from_id == bot_id and BLESSING_PATTERN.search(message.text or ""):
             target_chat_id = None
             for chat in config.chats:
                 if chat.enabled:
                     target_chat_id = chat.chat_id
                     break
             if target_chat_id and target_chat_id in chat_states:
-                target_state = chat_states[target_chat_id]
-                target_state.update_last_bless_time()
-                logging.info(f"Manual blessing detected in user {config.target_user_id}")
+                chat_states[target_chat_id].update_last_bless_time()
+                logging.info(f"🙏 Manual blessing обновлен для чата {target_chat_id}")
 
 async def manual_polling():
-    """РУЧНОЙ Long Poll - СТАБИЛЬНЫЙ"""
     await init_chats()
     asyncio.create_task(schedule_new_year_messages())
     logging.info("✅ BotBuff VK Bot started with MANUAL Long Poll API")
@@ -147,7 +182,6 @@ async def manual_polling():
             await asyncio.sleep(5)
 
 def run_bot():
-    """БЕЗ loop.close() - systemd не любит закрывать loop"""
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -157,7 +191,6 @@ def run_bot():
     except Exception as e:
         logging.error(f"Fatal error: {e}")
         send_tg_alert(f"❌ BotBuff VK Bot fatal error: {e}")
-    # УБРАЛИ loop.close() - systemd сам закроет процесс
 
 if __name__ == "__main__":
     asyncio.run(manual_polling())
