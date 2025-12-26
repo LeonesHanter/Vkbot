@@ -159,22 +159,13 @@ async def message_handler(message: Message):
 async def shutdown():
     logging.info("BotBuff VK Bot shutdown gracefully.")
     send_tg_alert("✅ BotBuff VK Bot stopped gracefully.")
-    exit(0)
 
 async def main():
     try:
         await init_chats()
-
-        # Запускаем задачу с автоматическими сообщениями
         asyncio.create_task(schedule_new_year_messages())
-
-        # Регистрируем обработчик сообщений (уже сделано через декоратор выше)
-
         logging.info("BotBuff VK Bot started with Long Poll API")
-        
-        # СТАНДАРТНЫЙ VKBOTTLE POLLING - БЕЗ РУЧНОЙ РЕАЛИЗАЦИИ!
         await bot.run_polling()
-        
     except KeyboardInterrupt:
         logging.info("BotBuff VK Bot stopped by user.")
         send_tg_alert("🛑 BotBuff VK Bot stopped by user.")
@@ -184,5 +175,26 @@ async def main():
         send_tg_alert(error_msg)
         raise
 
+def run_bot():
+    """Запуск для systemd - без asyncio.run()"""
+    loop = None
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        logging.info("BotBuff VK Bot interrupted.")
+    except Exception as e:
+        logging.error(f"BotBuff VK Bot failed: {e}")
+        send_tg_alert(f"❌ BotBuff VK Bot failed: {e}")
+    finally:
+        if loop:
+            loop.close()
+
 if __name__ == "__main__":
+    # Локальный запуск (python main.py)
     asyncio.run(main())
+else:
+    # systemd запуск
+    run_bot()
+
