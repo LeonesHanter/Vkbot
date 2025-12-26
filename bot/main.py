@@ -50,29 +50,31 @@ async def init_chats():
                 chat_id=chat_cfg.chat_id,
                 cooldown=chat_cfg.cooldown,
                 max_requests=chat_cfg.max_requests,
-                state_manager=state_manager
+                state_manager=state_manager,
+                target_user_id=config.target_user_id  # Передаём target_user_id в ChatState
             )
 
-async def send_new_year_message(bot_api, user_id: int):
+async def send_new_year_message(bot_api, chat_id: int):
+    peer_id = 2000000000 + chat_id  # Это будет source_chat_id (110)
     try:
         await bot_api.messages.send(
-            peer_id=user_id,
+            peer_id=peer_id,
             message="Всех с новым годом",
             disable_mentions=1,
             random_id=time.time_ns() % 1000000000
         )
-        logging.info(f"Auto message sent to user {user_id}")
+        logging.info(f"Auto message sent to chat {chat_id}")
     except Exception as e:
-        logging.error(f"Failed to send auto message to {user_id}: {e}")
+        logging.error(f"Failed to send auto message to chat {chat_id}: {e}")
 
 async def schedule_new_year_messages():
     while True:
         await asyncio.sleep(10800)  # 3 часа
         for chat_id in chat_states:
             try:
-                await send_new_year_message(bot.api, config.target_user_id)
+                await send_new_year_message(bot.api, config.source_chat_id)  # Отправляем в source_chat_id
             except Exception as e:
-                logging.error(f"Error in scheduling task for user {config.target_user_id}: {e}")
+                logging.error(f"Error in scheduling task for chat {config.source_chat_id}: {e}")
 
 async def main():
     try:
