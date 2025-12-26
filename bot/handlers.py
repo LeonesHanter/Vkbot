@@ -1,5 +1,6 @@
 import asyncio
 import time
+import logging  # Добавим явно, т.к. используется в _send_blessing
 from vkbottle import Message
 from .state import StateManager
 
@@ -22,12 +23,13 @@ SPECIAL_GOLD = {
 }
 
 class ChatState:
-    def __init__(self, chat_id: int, cooldown: int, max_requests: int, state_manager: StateManager):
+    def __init__(self, chat_id: int, cooldown: int, max_requests: int, state_manager: StateManager, target_user_id: int):
         self.chat_id = chat_id
         self.cooldown = cooldown
         self.max_requests = max_requests
         self.peer_id = 2000000000 + chat_id
         self.state_manager = state_manager
+        self.target_user_id = target_user_id  # ID сообщества, куда отправляются благословения
         self.lock = asyncio.Lock()
         self.semaphore = asyncio.Semaphore(3)
         # Время последнего благословения (вручную или через бота)
@@ -87,9 +89,7 @@ class ChatState:
 
     async def _send_blessing(self, api, blessing: str, message_id: int):
         # Используем target_user_id вместо peer_id чата
-        from bot.config import load_config
-        config = load_config()
-        peer_id = config.target_user_id  # Это будет -183040898
+        peer_id = self.target_user_id  # Это будет -183040898
 
         try:
             await api.messages.send(
@@ -97,7 +97,7 @@ class ChatState:
                 message=blessing,
                 forward_messages=[message_id],
                 disable_mentions=1,
-                random_id=time.time_ns() % 1000000000
+                random_id=time.time.time_ns() % 1000000000  # Исправлено
             )
             logging.info(f"Sent blessing '{blessing}' to user {peer_id}")
         except Exception as e:
