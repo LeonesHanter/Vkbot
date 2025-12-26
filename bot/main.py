@@ -99,16 +99,27 @@ async def main():
     try:
         await init_chats()
 
-        # Получаем ID бота (владельца токена)
-        user_info = await bot.api.users.get()
-        bot_id = user_info[0].id
-        logging.info(f"Bot ID: {bot_id}")
+        # Получаем ID бота (владельца токена) через API VK
+        # Это нужно для проверки, является ли сообщение от бота
+        # Мы не можем использовать bot.group_id, потому что это групповой бот
+        # Нам нужно получить ID пользователя, от имени которого работает токен
+        # Попробуем получить ID через API, но без вызова users.get
+        # Мы будем использовать ID, который приходит в сообщении от бота
+        # Это менее надёжно, но избежит вызова API при старте
+        # bot_id = user_info[0].id  # Убрано
+        bot_id = None  # Заглушка, будет обновляться при первом сообщении
 
         # Запускаем задачу с автоматическими сообщениями
         asyncio.create_task(schedule_new_year_messages())
 
         @bot.on.message()
         async def message_handler(message: Message):
+            nonlocal bot_id
+            if bot_id is None:
+                # Устанавливаем bot_id при первом сообщении
+                bot_id = message.from_id
+                logging.info(f"Bot ID detected: {bot_id}")
+
             # Проверяем, является ли сообщение из "source" чата (110)
             if message.peer_id == (2000000000 + config.source_chat_id):
                 text = message.text
