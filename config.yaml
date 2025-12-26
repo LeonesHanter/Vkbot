@@ -1,0 +1,12 @@
+chats:
+  - chat_id: 111
+    cooldown: 60
+    max_requests: 4
+    enabled: true
+  - chat_id: 112
+    cooldown: 30
+    max_requests: 4
+    enabled: false
+
+token: "ваш_токен"
+log_file: "bot.log"
