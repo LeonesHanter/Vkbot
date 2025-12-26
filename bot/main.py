@@ -185,12 +185,10 @@ async def main():
         # Используем asyncio.run напрямую
         # Это создаст и запустит цикл событий
         # vkbottle будет использовать его же
-        await bot.run_polling()
-    except Exception as e:
-        error_msg = f"❌ BotBuff VK Bot crashed: {e}"
-        logging.error(error_msg)
-        send_tg_alert(error_msg)
-        raise
+        # await bot.run_polling()
+        # Но run_polling вызывает loop_wrapper
+        # Поэтому используем get_long_poll_history
+        await bot.get_long_poll_history()
 
 if __name__ == "__main__":
     # Используем asyncio.run напрямую
