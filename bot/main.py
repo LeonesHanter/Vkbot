@@ -220,4 +220,6 @@ if __name__ == "__main__":
     # Используем asyncio.run напрямую
     # Это создаст и запустит цикл событий
     # vkbottle будет использовать его же
+    # await bot.run_polling()
+    # Убрали await bot.run_polling()
     asyncio.run(main())
