@@ -180,7 +180,8 @@ async def main():
         signal.signal(signal.SIGTERM, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        await bot.run_polling()
+        # Используем run_forever вместо run_polling
+        await bot.run_forever()
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
