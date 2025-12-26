@@ -43,6 +43,9 @@ chat_states = {}
 GOLD_PATTERN = re.compile(r"получено\s+(\d+)\s+золота", re.IGNORECASE)
 BLESSING_PATTERN = re.compile(r"благословение", re.IGNORECASE)
 
+# ID последнего сообщения "Всех с новым годом" (хранится в памяти)
+last_new_year_message_id = 0
+
 async def init_chats():
     for chat_cfg in config.chats:
         if chat_cfg.enabled:
@@ -51,19 +54,21 @@ async def init_chats():
                 cooldown=chat_cfg.cooldown,
                 max_requests=chat_cfg.max_requests,
                 state_manager=state_manager,
-                target_user_id=config.target_user_id  # Передаём target_user_id в ChatState
+                target_user_id=config.target_user_id
             )
 
 async def send_new_year_message(bot_api, chat_id: int):
+    global last_new_year_message_id
     peer_id = 2000000000 + chat_id  # Это будет source_chat_id (110)
     try:
-        await bot_api.messages.send(
+        response = await bot_api.messages.send(
             peer_id=peer_id,
             message="Всех с новым годом",
             disable_mentions=1,
             random_id=time.time_ns() % 1000000000
         )
-        logging.info(f"Auto message sent to chat {chat_id}")
+        last_new_year_message_id = response  # Сохраняем ID сообщения
+        logging.info(f"Auto message sent to chat {chat_id}, ID: {last_new_year_message_id}")
     except Exception as e:
         logging.error(f"Failed to send auto message to chat {chat_id}: {e}")
 
@@ -107,7 +112,21 @@ async def main():
                                     target_chat_id = chat.chat_id
                                     break
                             if target_chat_id and target_chat_id in chat_states:
-                                await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, message.id)
+                                # Найти оригинальное сообщение, на которое было действие
+                                # Попробуем найти сообщение, на которое оно ответило (reply_message)
+                                original_user_message_id = None
+                                if hasattr(message, 'reply_message') and message.reply_message:
+                                    original_user_message_id = message.reply_message.id
+                                # Если reply не доступен, используем forward
+                                if not original_user_message_id and message.fwd_messages:
+                                    # Берём первое пересланное сообщение как оригинальное
+                                    original_user_message_id = message.fwd_messages[0].id
+                                # Если не нашли оригинальное сообщение пользователя, выходим
+                                if not original_user_message_id:
+                                    logging.info(f"No original user message found for gold {gold_amount}, skipping.")
+                                    return
+                                # Если нашли, обрабатываем
+                                await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
                         except ValueError:
                             pass
 
