@@ -159,6 +159,11 @@ async def message_handler(message: Message):
                     target_state.update_last_bless_time()
                     logging.info(f"Manual blessing detected in user {config.target_user_id}, updating cooldown for chat {target_chat_id}.")
 
+async def shutdown():
+    logging.info("BotBuff VK Bot shutdown gracefully.")
+    send_tg_alert("✅ BotBuff VK Bot stopped gracefully.")
+    exit(0)
+
 async def main():
     try:
         await init_chats()
@@ -169,10 +174,12 @@ async def main():
         # Регистрируем обработчик сообщений
         bot.on.message()(message_handler)
 
-        def signal_handler():
+        def signal_handler(signum, frame):
+            logging.info(f"Received signal {signum}, shutting down...")
             asyncio.create_task(shutdown())
 
         signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
         # Запускаем polling вручную
@@ -189,11 +196,6 @@ async def main():
         logging.error(error_msg)
         send_tg_alert(error_msg)
         raise
-
-async def shutdown():
-    logging.info("BotBuff VK Bot shutdown gracefully.")
-    send_tg_alert("✅ BotBuff VK Bot stopped gracefully.")
-    exit(0)
 
 if __name__ == "__main__":
     # Используем asyncio.run напрямую
