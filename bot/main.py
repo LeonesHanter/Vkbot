@@ -15,31 +15,22 @@ from bot.handlers import ChatState
 
 load_dotenv()
 
-# Загрузка конфига и логирование
 config = load_config()
 logging.basicConfig(level=logging.INFO, filename=config.log_file, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Telegram уведомления
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-# Хранение последней ошибки
 last_tg_error = ""
 
 def send_tg_alert(message):
     global last_tg_error
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.warning("Telegram token or chat ID not set, skipping alert.")
-        return
-    if message == last_tg_error:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID or message == last_tg_error:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
         response = requests.post(url, data=data)
-        if response.status_code != 200:
-            logging.error(f"Failed to send Telegram alert: {response.text}")
-        else:
+        if response.status_code == 200:
             last_tg_error = message
     except Exception as e:
         logging.error(f"Failed to send Telegram alert: {e}")
@@ -47,10 +38,10 @@ def send_tg_alert(message):
 state_manager = StateManager()
 bot = Bot(token=config.token)
 chat_states = {}
-
 GOLD_PATTERN = re.compile(r"получено\s+(\d+)\s+золота", re.IGNORECASE)
 BLESSING_PATTERN = re.compile(r"благословение", re.IGNORECASE)
 last_new_year_message_id = 0
+bot_id = None
 
 async def init_chats():
     for chat_cfg in config.chats:
@@ -80,13 +71,11 @@ async def send_new_year_message(bot_api, chat_id: int):
 
 async def schedule_new_year_messages():
     while True:
-        await asyncio.sleep(10800)  # 3 часа
+        await asyncio.sleep(10800)
         try:
             await send_new_year_message(bot.api, config.source_chat_id)
         except Exception as e:
             logging.error(f"Error in scheduling task: {e}")
-
-bot_id = None
 
 @bot.on.message()
 async def message_handler(message: Message):
@@ -119,58 +108,55 @@ async def message_handler(message: Message):
                         await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
                 except ValueError:
                     pass
-
     elif message.peer_id == config.target_user_id:
         text = message.text
-        if message.from_id == bot_id:
-            if BLESSING_PATTERN.search(text):
-                target_chat_id = None
-                for chat in config.chats:
-                    if chat.enabled:
-                        target_chat_id = chat.chat_id
-                        break
-                if target_chat_id and target_chat_id in chat_states:
-                    target_state = chat_states[target_chat_id]
-                    target_state.update_last_bless_time()
-                    logging.info(f"Manual blessing detected in user {config.target_user_id}, updating cooldown for chat {target_chat_id}.")
+        if message.from_id == bot_id and BLESSING_PATTERN.search(text):
+            target_chat_id = None
+            for chat in config.chats:
+                if chat.enabled:
+                    target_chat_id = chat.chat_id
+                    break
+            if target_chat_id and target_chat_id in chat_states:
+                target_state = chat_states[target_chat_id]
+                target_state.update_last_bless_time()
+                logging.info(f"Manual blessing detected in user {config.target_user_id}")
 
-async def main():
-    try:
-        await init_chats()
-        asyncio.create_task(schedule_new_year_messages())
-        logging.info("BotBuff VK Bot started with Long Poll API")
-        await bot.run_polling()
-    except KeyboardInterrupt:
-        logging.info("BotBuff VK Bot stopped by user.")
-        send_tg_alert("🛑 BotBuff VK Bot stopped by user.")
-    except Exception as e:
-        error_msg = f"❌ BotBuff VK Bot crashed: {e}"
-        logging.error(error_msg)
-        send_tg_alert(error_msg)
-        raise
+async def manual_polling():
+    """РУЧНОЙ Long Poll БЕЗ vkbottle конфликтов"""
+    await init_chats()
+    asyncio.create_task(schedule_new_year_messages())
+    logging.info("BotBuff VK Bot started with MANUAL Long Poll API")
+    
+    server_info = await bot.api.messages.get_long_poll_server()
+    server_url = f"https://{server_info.server}"
+    key = server_info.key
+    ts = server_info.ts
+    
+    while True:
+        try:
+            response = await bot.api.http_client.request_json(
+                f"{server_url}?act=a_check&key={key}&ts={ts}&wait=25&mode=2"
+            )
+            ts = response["ts"]
+            for update in response["updates"]:
+                if update[0] == 4:  # message_new
+                    message = Message(**update[1])
+                    await message_handler(message)
+        except Exception as e:
+            logging.error(f"Long Poll error: {e}")
+            await asyncio.sleep(5)
 
 def run_bot():
-    """КРИТИЧЕСКИ ВАЖНО для systemd - создаёт свой event loop"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(main())
+        loop.run_until_complete(manual_polling())
     except KeyboardInterrupt:
-        logging.info("SIGINT received")
-    except Exception as e:
-        logging.error(f"Fatal error: {e}")
-        send_tg_alert(f"❌ BotBuff VK Bot fatal error: {e}")
+        logging.info("Bot stopped by SIGINT")
     finally:
-        # Graceful shutdown
-        tasks = [task for task in asyncio.all_tasks(loop) if task is not asyncio.current_task(loop)]
-        for task in tasks:
-            task.cancel()
-        loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
 
 if __name__ == "__main__":
-    # Локальный запуск
-    asyncio.run(main())
+    asyncio.run(manual_polling())
 else:
-    # systemd запуск
     run_bot()
