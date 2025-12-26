@@ -122,10 +122,10 @@ async def message_handler(message: Message):
                 logging.info(f"Manual blessing detected in user {config.target_user_id}")
 
 async def manual_polling():
-    """РУЧНОЙ Long Poll БЕЗ vkbottle конфликтов"""
+    """РУЧНОЙ Long Poll - СТАБИЛЬНЫЙ"""
     await init_chats()
     asyncio.create_task(schedule_new_year_messages())
-    logging.info("BotBuff VK Bot started with MANUAL Long Poll API")
+    logging.info("✅ BotBuff VK Bot started with MANUAL Long Poll API")
     
     server_info = await bot.api.messages.get_long_poll_server()
     server_url = f"https://{server_info.server}"
@@ -147,14 +147,17 @@ async def manual_polling():
             await asyncio.sleep(5)
 
 def run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    """БЕЗ loop.close() - systemd не любит закрывать loop"""
     try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(manual_polling())
     except KeyboardInterrupt:
         logging.info("Bot stopped by SIGINT")
-    finally:
-        loop.close()
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+        send_tg_alert(f"❌ BotBuff VK Bot fatal error: {e}")
+    # УБРАЛИ loop.close() - systemd сам закроет процесс
 
 if __name__ == "__main__":
     asyncio.run(manual_polling())
