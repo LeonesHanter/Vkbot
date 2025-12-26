@@ -182,14 +182,32 @@ async def main():
         signal.signal(signal.SIGINT, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        # Запускаем polling вручную
-        # Это обходит loop_wrapper
-        await bot.api.messages.get_long_poll_server()
+        # Используем asyncio.run напрямую
+        # Это создаст и запустит цикл событий
+        # vkbottle будет использовать его же
+        # await bot.run_polling()
+        # Но run_polling вызывает loop_wrapper
+        # Поэтому используем get_long_poll_server и get_long_poll_history вручную
+        server_info = await bot.api.messages.get_long_poll_server()
+        server_url = f"https://{server_info.server}"
+        key = server_info.key
+        ts = server_info.ts
+
         while True:
             try:
-                await bot.run_polling(skip_updates=True)
+                response = await bot.api.http_client.request_json(
+                    f"{server_url}?act=a_check&key={key}&ts={ts}&wait=25&mode=2"
+                )
+                ts = response["ts"]
+                updates = response["updates"]
+                for update in updates:
+                    # Обрабатываем обновления вручную
+                    # Это копия логики из vkbottle
+                    if update[0] == 4:  # message_new
+                        message = Message(**update[1])
+                        await message_handler(message)
             except Exception as e:
-                logging.error(f"Polling error: {e}")
+                logging.error(f"Long Poll error: {e}")
                 await asyncio.sleep(5)  # Ждём 5 секунд перед повтором
 
     except Exception as e:
