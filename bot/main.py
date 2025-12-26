@@ -189,6 +189,11 @@ async def main():
         # Но run_polling вызывает loop_wrapper
         # Поэтому используем get_long_poll_history
         await bot.get_long_poll_history()
+    except Exception as e:
+        error_msg = f"❌ BotBuff VK Bot crashed: {e}"
+        logging.error(error_msg)
+        send_tg_alert(error_msg)
+        raise
 
 if __name__ == "__main__":
     # Используем asyncio.run напрямую
