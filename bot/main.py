@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import requests
 from vkbottle import Bot
 from vkbottle.bot import Message
+from vkbottle.tools import LoopWrapper
 
 from bot.config import load_config
 from bot.state import StateManager
@@ -46,9 +47,15 @@ def send_tg_alert(message):
     except Exception as e:
         logging.error(f"Failed to send Telegram alert: {e}")
 
+# Создаём LoopWrapper, который не закрывает цикл
+class SafeLoopWrapper(LoopWrapper):
+    def run(self):
+        # Не закрываем цикл
+        self.loop.run_forever()
+
 state_manager = StateManager()
 # VK Bot с Long Poll
-bot = Bot(token=config.token)
+bot = Bot(token=config.token, loop_wrapper=SafeLoopWrapper())
 
 # Словарь для хранения состояний по чатам
 chat_states = {}
@@ -182,13 +189,9 @@ async def main():
         signal.signal(signal.SIGINT, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        # Используем asyncio.run напрямую
-        # Это создаст и запустит цикл событий
-        # vkbottle будет использовать его же
-        # await bot.run_polling()
-        # Но run_polling вызывает loop_wrapper
-        # Поэтому используем get_long_poll_history
-        await bot.get_long_poll_history()
+        # Используем run_polling
+        # LoopWrapper не закрывает цикл
+        await bot.run_polling()
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
