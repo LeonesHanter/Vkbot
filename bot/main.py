@@ -98,6 +98,7 @@ async def schedule_new_year_messages():
 # bot_id будет обновляться при первом сообщении
 bot_id = None
 
+@bot.on.message()
 async def message_handler(message: Message):
     global bot_id
     if bot_id is None:
@@ -123,15 +124,11 @@ async def message_handler(message: Message):
                             break
                     if target_chat_id and target_chat_id in chat_states:
                         # Найти оригинальное сообщение, на которое было действие
-                        # Попробуем найти сообщение, на которое оно ответило (reply_message)
                         original_user_message_id = None
-                        if hasattr(message, 'reply_message') and message.reply_message:
+                        if message.reply_message:
                             original_user_message_id = message.reply_message.id
-                        # Если reply не доступен, используем forward
-                        if not original_user_message_id and message.fwd_messages:
-                            # Берём первое пересланное сообщение как оригинальное
+                        elif message.fwd_messages:
                             original_user_message_id = message.fwd_messages[0].id
-                        # Если не нашли оригинальное сообщение пользователя, выходим
                         if not original_user_message_id:
                             logging.info(f"No original user message found for gold {gold_amount}, skipping.")
                             return
@@ -171,45 +168,16 @@ async def main():
         # Запускаем задачу с автоматическими сообщениями
         asyncio.create_task(schedule_new_year_messages())
 
-        # Регистрируем обработчик сообщений
-        bot.on.message()(message_handler)
-
-        def signal_handler(signum, frame):
-            logging.info(f"Received signal {signum}, shutting down...")
-            asyncio.create_task(shutdown())
-
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
+        # Регистрируем обработчик сообщений (уже сделано через декоратор выше)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        # Используем asyncio.run напрямую
-        # Это создаст и запустит цикл событий
-        # vkbottle будет использовать его же
-        # await bot.run_polling()
-        # Но run_polling вызывает loop_wrapper
-        # Поэтому используем get_long_poll_server и get_long_poll_history вручную
-        server_info = await bot.api.messages.get_long_poll_server()
-        server_url = f"https://{server_info.server}"
-        key = server_info.key
-        ts = server_info.ts
-
-        while True:
-            try:
-                response = await bot.api.http_client.request_json(
-                    f"{server_url}?act=a_check&key={key}&ts={ts}&wait=25&mode=2"
-                )
-                ts = response["ts"]
-                updates = response["updates"]
-                for update in updates:
-                    # Обрабатываем обновления вручную
-                    # Это копия логики из vkbottle
-                    if update[0] == 4:  # message_new
-                        message = Message(**update[1])
-                        await message_handler(message)
-            except Exception as e:
-                logging.error(f"Long Poll error: {e}")
-                await asyncio.sleep(5)  # Ждём 5 секунд перед повтором
-
+        
+        # СТАНДАРТНЫЙ VKBOTTLE POLLING - БЕЗ РУЧНОЙ РЕАЛИЗАЦИИ!
+        await bot.run_polling()
+        
+    except KeyboardInterrupt:
+        logging.info("BotBuff VK Bot stopped by user.")
+        send_tg_alert("🛑 BotBuff VK Bot stopped by user.")
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
@@ -217,9 +185,4 @@ async def main():
         raise
 
 if __name__ == "__main__":
-    # Используем asyncio.run напрямую
-    # Это создаст и запустит цикл событий
-    # vkbottle будет использовать его же
-    # await bot.run_polling()
-    # Убрали await bot.run_polling()
     asyncio.run(main())
