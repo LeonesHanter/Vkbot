@@ -10,7 +10,7 @@ class ChatConfig(BaseModel):
 
 class BotConfig(BaseModel):
     source_chat_id: int
-    target_chat_id: int
+    target_user_id: int  # Новый параметр
     chats: List[ChatConfig]
     token: str
     log_file: str = "bot.log"
