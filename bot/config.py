@@ -1,65 +1,117 @@
+#!/usr/bin/env python3
 import asyncio
-import logging
+import sys
+import time
 import os
+import re
 from dotenv import load_dotenv
+import requests
 from vkbottle import Bot
 
+# Логи ВСЮДА (stdout + файл)
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # 🔥 В JOURNALCTL
+        logging.FileHandler('/home/FOK/vk-bots/Vkbot/bot.log')
+    ]
+)
+
 load_dotenv()
+print("🚀 BotBuff ЗАПУЩЕН!")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-print("🚀 START")
+# Конфиг прямо в коде
+TOKEN = os.getenv("VK_USER_TOKEN")
+if not TOKEN:
+    print("❌ VK_USER_TOKEN не найден!")
+    sys.exit(1)
 
-class BotConfig:
-    token = os.getenv("VK_USER_TOKEN")
-    chats = [110]
+print(f"✅ Токен: {TOKEN[:15]}...")
+CHAT_ID = 110  # Единственный чат
 
-config = BotConfig()
-if not config.token:
-    print("❌ NO TOKEN")
-    exit(1)
+bot = Bot(token=TOKEN)
 
-print(f"✅ TOKEN OK: {config.token[:10]}...")
-bot = Bot(token=config.token)
-
-chat_states = {110: {"chat_id": 110}}
-
-async def handler(raw_message):
-    print(f"📨 MESSAGE: {raw_message}")
-    peer_id = raw_message.get('peer_id')
-    text = raw_message.get('text', '')
-    
-    if peer_id == 2000000110 and 'получено' in text:
-        print(f"🪙 GOLD FOUND: {text}")
+async def send_buff(peer_id, gold_amount):
+    """Отправляет баф"""
+    try:
         await bot.api.messages.send(
             peer_id=peer_id,
-            message="💰 БАФ ЗА ЗОЛОТО!",
-            random_id=0
+            message=f"💰 Баф за {gold_amount} золота! ✨",
+            random_id=int(time.time() * 1000000)
         )
-        print("✅ БАФ ОТПРАВЛЕН!")
+        print(f"✅ БАФ ОТПРАВЛЕН в {peer_id}")
+    except Exception as e:
+        print(f"❌ Ошибка бафа: {e}")
 
-async def poll():
-    print("🔄 Long Poll...")
-    server = await bot.api.messages.get_long_poll_server()
+async def process_message(raw_msg):
+    """Обрабатывает сообщение"""
+    peer_id = raw_msg.get('peer_id')
+    text = raw_msg.get('text', '').lower()
+    
+    print(f"📨 peer_id={peer_id} | text='{text[:50]}'")
+    
+    if peer_id == 2000000000 + CHAT_ID and 'получено' in text and 'золота' in text:
+        # Извлекаем число золота
+        numbers = re.findall(r'\d+', text)
+        if numbers:
+            gold = int(numbers[0])
+            print(f"🪙 НАЙДЕНО {gold} ЗОЛОТА!")
+            await send_buff(peer_id, gold)
+
+async def long_poll():
+    """Главный цикл Long Poll"""
+    print("🔄 Long Poll сервер...")
+    
+    # Получаем Long Poll сервер
+    lp_server = await bot.api.messages.get_long_poll_server()
+    print(f"📡 Сервер: {lp_server.server}")
+    
+    ts = lp_server.ts
+    key = lp_server.key
+    server = lp_server.server
     
     while True:
         try:
-            resp = await bot.api.http_client.request_json(
-                f"https://{server.server}?act=a_check&key={server.key}&ts={server.ts}&wait=25&mode=2"
-            )
-            for update in resp.get("updates", []):
-                if update[0] == 4:
-                    await handler(update[1])
-            server.ts = resp["ts"]
+            # Запрос обновлений
+            url = f"https://{server}"
+            params = {
+                'act': 'a_check',
+                'key': key,
+                'ts': ts,
+                'wait': 25,
+                'mode': 2,
+                'version': 3
+            }
+            
+            response = await bot.api.http_client.request_json(url, params=params)
+            ts = response['ts']
+            
+            for update in response.get('updates', []):
+                if update[0] == 4:  # Новое сообщение
+                    await process_message(update[1])
+                    
         except Exception as e:
-            print(f"ERROR: {e}")
+            print(f"⚠️ Long Poll ошибка: {e}")
             await asyncio.sleep(3)
 
-def run():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(poll())
+async def main():
+    print("🎯 Ожидаю золото в чате 110...")
+    await long_poll()
+
+def run_bot():
+    """Для systemd"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("🛑 Остановка")
+    finally:
+        print("👋 До свидания!")
 
 if __name__ == "__main__":
-    asyncio.run(poll())
+    asyncio.run(main())
 else:
-    run()
+    run_bot()
