@@ -184,8 +184,8 @@ async def main():
         logging.info("BotBuff VK Bot started with Long Poll API")
         # Запускаем polling вручную
         await bot.api.messages.get_long_poll_server()
-        # Используем run_polling без loop_wrapper
-        await bot.run_polling(skip_updates=True)
+        # Используем run_polling без skip_updates
+        await bot.run_polling()
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
