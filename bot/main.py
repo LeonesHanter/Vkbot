@@ -9,9 +9,9 @@ import requests
 from vkbottle import Bot
 from vkbottle.bot import Message
 
-from .config import load_config
-from .state import StateManager
-from .handlers import ChatState
+from bot.config import load_config
+from bot.state import StateManager
+from bot.handlers import ChatState
 
 load_dotenv()
 
@@ -23,14 +23,26 @@ logging.basicConfig(level=logging.INFO, filename=config.log_file, format='%(asct
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Хранение последней ошибки
+last_tg_error = ""
+
 def send_tg_alert(message):
+    global last_tg_error
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logging.warning("Telegram token or chat ID not set, skipping alert.")
+        return
+    if message == last_tg_error:
+        # Ошибка уже была отправлена, не отправляем снова
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        requests.post(url, data=data)
+        response = requests.post(url, data=data)
+        if response.status_code != 200:
+            logging.error(f"Failed to send Telegram alert: {response.text}")
+        else:
+            # Обновляем последнюю ошибку
+            last_tg_error = message
     except Exception as e:
         logging.error(f"Failed to send Telegram alert: {e}")
 
@@ -171,5 +183,3 @@ async def shutdown():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
