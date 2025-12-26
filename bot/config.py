@@ -6,19 +6,40 @@ import re
 from dotenv import load_dotenv
 import requests
 from vkbottle import Bot
-from vkbottle.bot import Message
-
-from bot.config import load_config
-from bot.state import StateManager
-from bot.handlers import ChatState
 
 load_dotenv()
 
+# 🔥 ФИКС: config ПЕРЕД импортами
+class ChatConfig:
+    def __init__(self, enabled=True, chat_id=110, cooldown=300, max_requests=5):
+        self.enabled = enabled
+        self.chat_id = chat_id
+        self.cooldown = cooldown
+        self.max_requests = max_requests
+
+class BotConfig:
+    def __init__(self):
+        self.token = os.getenv("VK_USER_TOKEN", "")
+        self.source_chat_id = 110
+        self.target_user_id = 0
+        self.log_file = "/home/FOK/vk-bots/Vkbot/bot.log"
+        self.chats = [
+            ChatConfig(chat_id=110, enabled=True, cooldown=300, max_requests=5),
+        ]
+
+def load_config():
+    config = BotConfig()
+    if not config.token:
+        raise ValueError("❌ VK_USER_TOKEN не найден!")
+    print(f"✅ Конфиг OK | Чат 110 | Токен: {config.token[:10]}...")
+    return config
+
+# Логирование
 config = load_config()
 logging.basicConfig(
     level=logging.INFO, 
     filename=config.log_file, 
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(message)s',
     force=True
 )
 
@@ -33,74 +54,78 @@ def send_tg_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        response = requests.post(url, data=data)
-        if response.status_code == 200:
-            last_tg_error = message
-    except Exception as e:
-        logging.error(f"Telegram alert failed: {e}")
+        requests.post(url, data=data)
+        last_tg_error = message
+    except:
+        pass
 
-state_manager = StateManager()
 bot = Bot(token=config.token)
 chat_states = {}
 GOLD_PATTERN = re.compile(r"получено\s+(\d+)\s+золота", re.IGNORECASE)
-BLESSING_PATTERN = re.compile(r"благословение", re.IGNORECASE)
 bot_id = None
+
+class SimpleChatState:
+    def __init__(self, chat_id, cooldown, max_requests, **kwargs):
+        self.chat_id = chat_id
+        self.cooldown = cooldown
+        self.max_requests = max_requests
+        self.last_bless_time = 0
+        self.request_count = 0
+    
+    async def handle_gold_message(self, api, gold_amount, message_id):
+        peer_id = 2000000000 + self.chat_id
+        try:
+            await api.messages.send(
+                peer_id=peer_id,
+                message=f"💰 Баф за {gold_amount} золота! ✨",
+                reply_to=message_id,
+                random_id=int(time.time() * 1000)
+            )
+            logging.info(f"✅ Баф выдан в чат {self.chat_id}")
+        except Exception as e:
+            logging.error(f"Ошибка бафа: {e}")
 
 async def init_chats():
     for chat_cfg in config.chats:
         if chat_cfg.enabled:
-            chat_states[chat_cfg.chat_id] = ChatState(
+            chat_states[chat_cfg.chat_id] = SimpleChatState(
                 chat_id=chat_cfg.chat_id,
                 cooldown=chat_cfg.cooldown,
-                max_requests=chat_cfg.max_requests,
-                state_manager=state_manager,
-                target_user_id=config.target_user_id
+                max_requests=chat_cfg.max_requests
             )
-    logging.info(f"✅ Инициализировано чатов: {len(chat_states)}")
+    logging.info(f"✅ Чаты: {list(chat_states.keys())}")
 
-@bot.on.message()
-async def message_handler(message: Message):
+async def message_handler(raw_message):
     global bot_id
+    logging.info(f"📨 peer_id={raw_message.get('peer_id')}, text='{raw_message.get('text', '')[:50]}'")
     
-    logging.info(f"📨 peer_id={message.peer_id}, from_id={message.from_id}, text='{message.text[:100]}'")
+    peer_id = raw_message.get('peer_id')
+    from_id = raw_message.get('from_id')
+    text = raw_message.get('text', '')
     
     if bot_id is None:
-        bot_id = message.from_id
-        logging.info(f"🤖 Bot ID определён: {bot_id}")
+        bot_id = from_id
+        logging.info(f"🤖 Bot ID: {bot_id}")
 
-    # 🔥 НОВАЯ ЛОГИКА: баф в том же чате!
-    chat_id = message.peer_id - 2000000000
+    chat_id = peer_id - 2000000000 if peer_id else 0
     
     if chat_id in chat_states:
-        logging.info(f"✅ Чат {chat_id} отслеживается!")
-        text = message.text or ""
-        
         bot_id_str = str(bot_id)
-        has_bot_id = bot_id_str in text or f"id{bot_id}" in text
-        logging.info(f"🤖 Bot ID в тексте: {has_bot_id}")
-        
-        if has_bot_id:
+        if bot_id_str in text or f"id{bot_id}" in text:
             match = GOLD_PATTERN.search(text)
             if match:
                 gold_amount = int(match.group(1))
-                logging.info(f"🪙 НАЙДЕНО ЗОЛОТО: {gold_amount}")
+                logging.info(f"🪙 ЗОЛОТО {gold_amount} в чате {chat_id}")
                 
                 state = chat_states[chat_id]
-                original_msg_id = message.id  # Текущее сообщение
+                msg_id = raw_message.get('id', peer_id)
                 
-                logging.info(f"🚀 Баф в чате {chat_id}, msg_id={original_msg_id}")
-                await state.handle_gold_message(bot.api, gold_amount, original_msg_id)
-                logging.info("✅ ✅ БАФ ВЫДАН В ТОМ ЖЕ ЧАТЕ!")
-            else:
-                logging.info("❌ Нет 'получено X золота'")
-    else:
-        logging.debug(f"📍 Чат {chat_id} не отслеживается")
+                await state.handle_gold_message(bot.api, gold_amount, msg_id)
+                logging.info("✅ ✅ БАФ ВЫДАН!")
 
 async def manual_polling():
-    """🔧 ИСПРАВЛЕННЫЙ Long Poll парсинг"""
     await init_chats()
-    asyncio.create_task(send_periodic_messages())
-    logging.info("🚀 BotBuff запущен - БАФ В ТОМ ЖЕ ЧАТЕ!")
+    logging.info("🚀 BotBuff РАБОТАЕТ!")
     
     server_info = await bot.api.messages.get_long_poll_server()
     server_url = f"https://{server_info.server}"
@@ -115,48 +140,22 @@ async def manual_polling():
             ts = response["ts"]
             
             for update in response.get("updates", []):
-                try:
-                    # 🔥 ИСПРАВЛЕНИЕ: правильный парсинг message_new
-                    if update[0] == 4:  # message_new
-                        message_obj = update[1]
-                        if isinstance(message_obj, dict):
-                            message = Message(**message_obj)
-                            await message_handler(message)
-                        else:
-                            logging.debug(f"⏭️ Пропуск не-dict сообщения: {type(message_obj)}")
-                except Exception as e:
-                    logging.error(f"Ошибка обработки update {update[:2]}: {e}")
+                if update[0] == 4:  # message_new
+                    await message_handler(update[1])  # RAW данные!
                     
         except Exception as e:
-            logging.error(f"Long Poll ошибка: {e}")
-            await asyncio.sleep(5)
-
-async def send_periodic_messages():
-    """Авто-сообщения каждые 3 часа"""
-    while True:
-        await asyncio.sleep(10800)  # 3 часа
-        peer_id = 2000000000 + config.source_chat_id
-        try:
-            await bot.api.messages.send(
-                peer_id=peer_id,
-                message="Всех с новым годом! 🎄",
-                disable_mentions=1,
-                random_id=int(time.time() * 1000)
-            )
-            logging.info(f"🎄 Авто-сообщение в чат {config.source_chat_id}")
-        except Exception as e:
-            logging.error(f"Ошибка авто-сообщения: {e}")
+            logging.error(f"Long Poll: {str(e)[:100]}")
+            await asyncio.sleep(3)
 
 def run_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         loop.run_until_complete(manual_polling())
     except KeyboardInterrupt:
-        logging.info("🛑 Остановка по SIGINT")
-    except Exception as e:
-        logging.error(f"💥 Критическая ошибка: {e}")
-        send_tg_alert(f"💥 BotBuff упал: {e}")
+        logging.info("🛑 Stop")
+    finally:
+        pass  # Без loop.close()
 
 if __name__ == "__main__":
     asyncio.run(manual_polling())
