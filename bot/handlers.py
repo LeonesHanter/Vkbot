@@ -86,14 +86,19 @@ class ChatState:
         self.state_manager.set_processing(self.chat_id, False)
 
     async def _send_blessing(self, api, blessing: str, message_id: int):
+        # Используем target_user_id вместо peer_id чата
+        from bot.config import load_config
+        config = load_config()
+        peer_id = config.target_user_id  # Это будет -183040898
+
         try:
             await api.messages.send(
-                peer_id=self.peer_id,
+                peer_id=peer_id,
                 message=blessing,
                 forward_messages=[message_id],
                 disable_mentions=1,
                 random_id=time.time_ns() % 1000000000
             )
-            logging.info(f"Sent blessing '{blessing}' to chat {self.chat_id}")
+            logging.info(f"Sent blessing '{blessing}' to user {peer_id}")
         except Exception as e:
-            logging.error(f"Failed to send blessing to chat {self.chat_id}: {e}")
+            logging.error(f"Failed to send blessing to user {peer_id}: {e}")
