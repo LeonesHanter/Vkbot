@@ -9,10 +9,21 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-TELEGRAM_ADMIN_BOT_TOKEN = os.getenv("TELEGRAM_ADMIN_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID"))
 # Загружаем список админов
 ADMIN_CHAT_IDS_RAW = os.getenv("TELEGRAM_ADMIN_CHAT_IDS", "")
 ADMIN_CHAT_IDS = [int(x.strip()) for x in ADMIN_CHAT_IDS_RAW.split(",") if x.strip().isdigit()]
+
+async def send_alert(message):
+    """Отправка уведомления в указанный чат"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    try:
+        import requests
+        requests.post(url, data=data)
+    except Exception as e:
+        logging.error(f"Failed to send Telegram alert: {e}")
 
 async def check_auth(update: Update):
     user_id = update.effective_message.chat_id
@@ -72,7 +83,7 @@ async def update_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_auth(update):
         return
     try:
-        result = subprocess.run(['git', '-C', '/home/FOK/Vkbot', 'pull'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['git', '-C', '/home/FOK/vk-bots/Vkbot', 'pull'], capture_output=True, text=True, check=True)
         await update.message.reply_text(f"✅ Git pull successful:\n```\n{result.stdout}\n```", parse_mode='Markdown')
         # Перезапускаем бота после обновления
         subprocess.run(['sudo', 'systemctl', 'restart', 'botbuff'], check=True)
@@ -81,10 +92,10 @@ async def update_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error updating code: {e.stderr}")
 
 def main():
-    if not TELEGRAM_ADMIN_BOT_TOKEN:
-        logging.error("TELEGRAM_ADMIN_BOT_TOKEN not set!")
+    if not TELEGRAM_BOT_TOKEN:
+        logging.error("TELEGRAM_BOT_TOKEN not set!")
         return
-    app = Application.builder().token(TELEGRAM_ADMIN_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("restart", restart))
