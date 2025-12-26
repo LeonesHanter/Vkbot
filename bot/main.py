@@ -95,84 +95,79 @@ async def schedule_new_year_messages():
             except Exception as e:
                 logging.error(f"Error in scheduling task for chat {config.source_chat_id}: {e}")
 
+# bot_id будет обновляться при первом сообщении
+bot_id = None
+
+async def message_handler(message: Message):
+    global bot_id
+    if bot_id is None:
+        # Устанавливаем bot_id при первом сообщении
+        bot_id = message.from_id
+        logging.info(f"Bot ID detected: {bot_id}")
+
+    # Проверяем, является ли сообщение из "source" чата (110)
+    if message.peer_id == (2000000000 + config.source_chat_id):
+        text = message.text
+        # Проверяем, содержит ли сообщение ID бота
+        if str(bot_id) in text or f"id{bot_id}" in text:
+            # Ищем "получено X золота"
+            match = GOLD_PATTERN.search(text)
+            if match:
+                try:
+                    gold_amount = int(match.group(1))
+                    # Находим первый активный чат из config.chats
+                    target_chat_id = None
+                    for chat in config.chats:
+                        if chat.enabled:
+                            target_chat_id = chat.chat_id
+                            break
+                    if target_chat_id and target_chat_id in chat_states:
+                        # Найти оригинальное сообщение, на которое было действие
+                        # Попробуем найти сообщение, на которое оно ответило (reply_message)
+                        original_user_message_id = None
+                        if hasattr(message, 'reply_message') and message.reply_message:
+                            original_user_message_id = message.reply_message.id
+                        # Если reply не доступен, используем forward
+                        if not original_user_message_id and message.fwd_messages:
+                            # Берём первое пересланное сообщение как оригинальное
+                            original_user_message_id = message.fwd_messages[0].id
+                        # Если не нашли оригинальное сообщение пользователя, выходим
+                        if not original_user_message_id:
+                            logging.info(f"No original user message found for gold {gold_amount}, skipping.")
+                            return
+                        # Если нашли, обрабатываем
+                        await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
+                except ValueError:
+                    pass
+
+    # Проверяем, является ли сообщение из "target_user_id" (ЛС с сообществом)
+    elif message.peer_id == config.target_user_id:
+        text = message.text
+        # Проверяем, отправлено ли сообщение от владельца токена
+        if message.from_id == bot_id:
+            # Проверяем, содержит ли сообщение "благословение"
+            if BLESSING_PATTERN.search(text):
+                # Находим первый активный чат из config.chats
+                target_chat_id = None
+                for chat in config.chats:
+                    if chat.enabled:
+                        target_chat_id = chat.chat_id
+                        break
+                if target_chat_id and target_chat_id in chat_states:
+                    target_state = chat_states[target_chat_id]
+                    # Обновляем время последнего благословения
+                    target_state.update_last_bless_time()
+                    logging.info(f"Manual blessing detected in user {config.target_user_id}, updating cooldown for chat {target_chat_id}.")
+
 async def main():
     try:
         await init_chats()
 
-        # Получаем ID бота (владельца токена) через API VK
-        # Это нужно для проверки, является ли сообщение от бота
-        # Мы не можем использовать bot.group_id, потому что это групповой бот
-        # Нам нужно получить ID пользователя, от имени которого работает токен
-        # Попробуем получить ID через API, но без вызова users.get
-        # Мы будем использовать ID, который приходит в сообщении от бота
-        # Это менее надёжно, но избежит вызова API при старте
-        # bot_id = user_info[0].id  # Убрано
-        bot_id = None  # Заглушка, будет обновляться при первом сообщении
-
         # Запускаем задачу с автоматическими сообщениями
         asyncio.create_task(schedule_new_year_messages())
 
-        @bot.on.message()
-        async def message_handler(message: Message):
-            nonlocal bot_id
-            if bot_id is None:
-                # Устанавливаем bot_id при первом сообщении
-                bot_id = message.from_id
-                logging.info(f"Bot ID detected: {bot_id}")
-
-            # Проверяем, является ли сообщение из "source" чата (110)
-            if message.peer_id == (2000000000 + config.source_chat_id):
-                text = message.text
-                # Проверяем, содержит ли сообщение ID бота
-                if str(bot_id) in text or f"id{bot_id}" in text:
-                    # Ищем "получено X золота"
-                    match = GOLD_PATTERN.search(text)
-                    if match:
-                        try:
-                            gold_amount = int(match.group(1))
-                            # Находим первый активный чат из config.chats
-                            target_chat_id = None
-                            for chat in config.chats:
-                                if chat.enabled:
-                                    target_chat_id = chat.chat_id
-                                    break
-                            if target_chat_id and target_chat_id in chat_states:
-                                # Найти оригинальное сообщение, на которое было действие
-                                # Попробуем найти сообщение, на которое оно ответило (reply_message)
-                                original_user_message_id = None
-                                if hasattr(message, 'reply_message') and message.reply_message:
-                                    original_user_message_id = message.reply_message.id
-                                # Если reply не доступен, используем forward
-                                if not original_user_message_id and message.fwd_messages:
-                                    # Берём первое пересланное сообщение как оригинальное
-                                    original_user_message_id = message.fwd_messages[0].id
-                                # Если не нашли оригинальное сообщение пользователя, выходим
-                                if not original_user_message_id:
-                                    logging.info(f"No original user message found for gold {gold_amount}, skipping.")
-                                    return
-                                # Если нашли, обрабатываем
-                                await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, original_user_message_id)
-                        except ValueError:
-                            pass
-
-            # Проверяем, является ли сообщение из "target_user_id" (ЛС с сообществом)
-            elif message.peer_id == config.target_user_id:
-                text = message.text
-                # Проверяем, отправлено ли сообщение от владельца токена
-                if message.from_id == bot_id:
-                    # Проверяем, содержит ли сообщение "благословение"
-                    if BLESSING_PATTERN.search(text):
-                        # Находим первый активный чат из config.chats
-                        target_chat_id = None
-                        for chat in config.chats:
-                            if chat.enabled:
-                                target_chat_id = chat.chat_id
-                                break
-                        if target_chat_id and target_chat_id in chat_states:
-                            target_state = chat_states[target_chat_id]
-                            # Обновляем время последнего благословения
-                            target_state.update_last_bless_time()
-                            logging.info(f"Manual blessing detected in user {config.target_user_id}, updating cooldown for chat {target_chat_id}.")
+        # Регистрируем обработчик сообщений
+        bot.on.message()(message_handler)
 
         def signal_handler():
             asyncio.create_task(shutdown())
@@ -180,8 +175,14 @@ async def main():
         signal.signal(signal.SIGTERM, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        # Используем run_forever вместо run_polling
-        await bot.run_forever()
+        # Запускаем polling вручную
+        await bot.api.messages.get_long_poll_server()
+        while True:
+            try:
+                await bot.run_polling(skip_updates=True)
+            except Exception as e:
+                logging.error(f"Polling error: {e}")
+                await asyncio.sleep(5)  # Ждём 5 секунд перед повтором
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
