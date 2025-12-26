@@ -1,7 +1,7 @@
 import asyncio
 import time
 import logging
-from vkbottle import Message
+from vkbottle.bot import Message
 from .state import StateManager
 
 # Словарь соответствия золота и благословений
