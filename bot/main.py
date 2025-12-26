@@ -51,7 +51,9 @@ def send_tg_alert(message):
 class SafeLoopWrapper(LoopWrapper):
     def run(self):
         # Не закрываем цикл
-        self.loop.run_forever()
+        # Используем текущий цикл
+        loop = asyncio.get_event_loop()
+        loop.run_forever()
 
 state_manager = StateManager()
 # VK Bot с Long Poll
