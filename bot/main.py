@@ -198,6 +198,16 @@ if __name__ == "__main__":
     # Но мы не будем использовать asyncio.run, потому что vkbottle сам запускает цикл
     # asyncio.run(main())
     # Вместо этого, запустим main напрямую
+    # loop = asyncio.new_event_loop()
+    # asyncio.set_event_loop(loop)
+    # loop.run_until_complete(main())
+    # Но мы не будем использовать loop.run_until_complete, потому что vkbottle сам запускает цикл
+    # loop.run_until_complete(main())
+    # Вместо этого, запустим main напрямую
+    # asyncio.get_event_loop().run_until_complete(main())
+    # Но мы не будем использовать asyncio.get_event_loop(), потому что он может быть уже запущен
+    # asyncio.get_event_loop().run_until_complete(main())
+    # Вместо этого, создадим новый цикл и запустим его
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main())
