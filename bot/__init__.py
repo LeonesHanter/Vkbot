@@ -1,0 +1,3 @@
+"""
+BotBuff VK Bot package
+"""

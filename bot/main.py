@@ -1,0 +1,140 @@
+import asyncio
+import logging
+import signal
+import time
+import os
+import re
+from dotenv import load_dotenv
+import requests
+from vkbottle import Bot, Message
+from .config import load_config
+from .state import StateManager
+from .handlers import ChatState
+
+load_dotenv()
+
+# Загрузка конфига и логирование
+config = load_config()
+logging.basicConfig(level=logging.INFO, filename=config.log_file, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Telegram уведомления
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def send_tg_alert(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.warning("Telegram token or chat ID not set, skipping alert.")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    try:
+        requests.post(url, data=data)
+    except Exception as e:
+        logging.error(f"Failed to send Telegram alert: {e}")
+
+state_manager = StateManager()
+# VK Bot с Long Poll
+bot = Bot(token=config.token)
+
+# Словарь для хранения состояний по чатам
+chat_states = {}
+
+# Regex для поиска "получено X золота"
+GOLD_PATTERN = re.compile(r"получено\s+(\d+)\s+золота", re.IGNORECASE)
+BLESSING_PATTERN = re.compile(r"благословение", re.IGNORECASE)
+
+async def init_chats():
+    for chat_cfg in config.chats:
+        if chat_cfg.enabled:
+            chat_states[chat_cfg.chat_id] = ChatState(
+                chat_id=chat_cfg.chat_id,
+                cooldown=chat_cfg.cooldown,
+                max_requests=chat_cfg.max_requests,
+                state_manager=state_manager
+            )
+
+async def send_new_year_message(bot_api, chat_id: int):
+    peer_id = 2000000000 + chat_id
+    try:
+        await bot_api.messages.send(
+            peer_id=peer_id,
+            message="Всех с новым годом",
+            disable_mentions=1,
+            random_id=time.time_ns() % 1000000000
+        )
+        logging.info(f"Auto message sent to chat {chat_id}")
+    except Exception as e:
+        logging.error(f"Failed to send auto message to {chat_id}: {e}")
+
+async def schedule_new_year_messages():
+    while True:
+        await asyncio.sleep(10800)  # 3 часа
+        for chat_id in chat_states:
+            try:
+                await send_new_year_message(bot.api, chat_id)
+            except Exception as e:
+                logging.error(f"Error in scheduling task for chat {chat_id}: {e}")
+
+async def main():
+    try:
+        await init_chats()
+
+        # Получаем ID бота (владельца токена)
+        user_info = await bot.api.users.get()
+        bot_id = user_info[0].id
+        logging.info(f"Bot ID: {bot_id}")
+
+        # Запускаем задачу с автоматическими сообщениями
+        asyncio.create_task(schedule_new_year_messages())
+
+        @bot.on.message()
+        async def message_handler(message: Message):
+            # Проверяем, является ли сообщение из "source" чата (110)
+            if message.peer_id == (2000000000 + config.source_chat_id):
+                text = message.text
+                # Проверяем, содержит ли сообщение ID бота
+                if str(bot_id) in text or f"id{bot_id}" in text:
+                    # Ищем "получено X золота"
+                    match = GOLD_PATTERN.search(text)
+                    if match:
+                        try:
+                            gold_amount = int(match.group(1))
+                            target_state = chat_states.get(config.target_chat_id)
+                            if target_state:
+                                await target_state.handle_gold_message(bot.api, gold_amount, message.id)
+                        except ValueError:
+                            pass
+
+            # Проверяем, является ли сообщение из "target" чата (111)
+            elif message.peer_id == (2000000000 + config.target_chat_id):
+                text = message.text
+                # Проверяем, отправлено ли сообщение от владельца токена
+                if message.from_id == bot_id:
+                    # Проверяем, содержит ли сообщение "благословение"
+                    if BLESSING_PATTERN.search(text):
+                        target_state = chat_states.get(config.target_chat_id)
+                        if target_state:
+                            # Обновляем время последнего благословения
+                            target_state.update_last_bless_time()
+                            logging.info(f"Manual blessing detected in chat {config.target_chat_id}, updating cooldown.")
+
+        def signal_handler():
+            asyncio.create_task(shutdown())
+
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        logging.info("BotBuff VK Bot started with Long Poll API")
+        await bot.run_polling()
+    except Exception as e:
+        error_msg = f"❌ BotBuff VK Bot crashed: {e}"
+        logging.error(error_msg)
+        send_tg_alert(error_msg)
+        raise
+
+async def shutdown():
+    logging.info("BotBuff VK Bot shutdown gracefully.")
+    send_tg_alert("✅ BotBuff VK Bot stopped gracefully.")
+    exit(0)
+
+if __name__ == "__main__":
+    asyncio.run(main())
