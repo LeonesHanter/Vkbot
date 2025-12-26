@@ -6,7 +6,9 @@ import os
 import re
 from dotenv import load_dotenv
 import requests
-from vkbottle import Bot, Message
+from vkbottle import Bot
+from vkbottle.bot import Message
+
 from .config import load_config
 from .state import StateManager
 from .handlers import ChatState
