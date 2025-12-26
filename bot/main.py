@@ -182,9 +182,10 @@ async def main():
         signal.signal(signal.SIGINT, signal_handler)
 
         logging.info("BotBuff VK Bot started with Long Poll API")
-        # Используем run_polling без loop_wrapper
+        # Используем run_forever вместо run_polling
         # Это запустит цикл событий внутри vkbottle
-        await bot.run_polling()
+        # И не будет пытаться закрыть цикл
+        await bot.run_forever()
     except Exception as e:
         error_msg = f"❌ BotBuff VK Bot crashed: {e}"
         logging.error(error_msg)
@@ -195,19 +196,4 @@ if __name__ == "__main__":
     # Используем asyncio.run напрямую
     # Это создаст и запустит цикл событий
     # vkbottle будет использовать его же
-    # Но мы не будем использовать asyncio.run, потому что vkbottle сам запускает цикл
-    # asyncio.run(main())
-    # Вместо этого, запустим main напрямую
-    # loop = asyncio.new_event_loop()
-    # asyncio.set_event_loop(loop)
-    # loop.run_until_complete(main())
-    # Но мы не будем использовать loop.run_until_complete, потому что vkbottle сам запускает цикл
-    # loop.run_until_complete(main())
-    # Вместо этого, создадим новый цикл и запустим его
-    # loop = asyncio.new_event_loop()
-    # asyncio.set_event_loop(loop)
-    # loop.run_until_complete(main())
-    # Но мы не будем использовать loop.close(), потому что vkbottle сам закрывает цикл
-    # loop.close()
-    # Вместо этого, запустим main напрямую
     asyncio.run(main())
