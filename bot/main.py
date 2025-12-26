@@ -177,6 +177,7 @@ async def main():
         logging.info("BotBuff VK Bot started with Long Poll API")
         # Запускаем polling вручную
         await bot.api.messages.get_long_poll_server()
+        # Запускаем polling вручную, без loop_wrapper
         while True:
             try:
                 await bot.run_polling(skip_updates=True)
@@ -195,4 +196,10 @@ async def shutdown():
     exit(0)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Используем asyncio.run напрямую
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
