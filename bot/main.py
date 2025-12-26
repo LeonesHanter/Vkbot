@@ -53,27 +53,26 @@ async def init_chats():
                 state_manager=state_manager
             )
 
-async def send_new_year_message(bot_api, chat_id: int):
-    peer_id = 2000000000 + chat_id
+async def send_new_year_message(bot_api, user_id: int):
     try:
         await bot_api.messages.send(
-            peer_id=peer_id,
+            peer_id=user_id,
             message="Всех с новым годом",
             disable_mentions=1,
             random_id=time.time_ns() % 1000000000
         )
-        logging.info(f"Auto message sent to chat {chat_id}")
+        logging.info(f"Auto message sent to user {user_id}")
     except Exception as e:
-        logging.error(f"Failed to send auto message to {chat_id}: {e}")
+        logging.error(f"Failed to send auto message to {user_id}: {e}")
 
 async def schedule_new_year_messages():
     while True:
         await asyncio.sleep(10800)  # 3 часа
         for chat_id in chat_states:
             try:
-                await send_new_year_message(bot.api, chat_id)
+                await send_new_year_message(bot.api, config.target_user_id)
             except Exception as e:
-                logging.error(f"Error in scheduling task for chat {chat_id}: {e}")
+                logging.error(f"Error in scheduling task for user {config.target_user_id}: {e}")
 
 async def main():
     try:
@@ -99,24 +98,35 @@ async def main():
                     if match:
                         try:
                             gold_amount = int(match.group(1))
-                            target_state = chat_states.get(config.target_chat_id)
-                            if target_state:
-                                await target_state.handle_gold_message(bot.api, gold_amount, message.id)
+                            # Находим первый активный чат из config.chats
+                            target_chat_id = None
+                            for chat in config.chats:
+                                if chat.enabled:
+                                    target_chat_id = chat.chat_id
+                                    break
+                            if target_chat_id and target_chat_id in chat_states:
+                                await chat_states[target_chat_id].handle_gold_message(bot.api, gold_amount, message.id)
                         except ValueError:
                             pass
 
-            # Проверяем, является ли сообщение из "target" чата (111)
-            elif message.peer_id == (2000000000 + config.target_chat_id):
+            # Проверяем, является ли сообщение из "target_user_id" (ЛС с сообществом)
+            elif message.peer_id == config.target_user_id:
                 text = message.text
                 # Проверяем, отправлено ли сообщение от владельца токена
                 if message.from_id == bot_id:
                     # Проверяем, содержит ли сообщение "благословение"
                     if BLESSING_PATTERN.search(text):
-                        target_state = chat_states.get(config.target_chat_id)
-                        if target_state:
+                        # Находим первый активный чат из config.chats
+                        target_chat_id = None
+                        for chat in config.chats:
+                            if chat.enabled:
+                                target_chat_id = chat.chat_id
+                                break
+                        if target_chat_id and target_chat_id in chat_states:
+                            target_state = chat_states[target_chat_id]
                             # Обновляем время последнего благословения
                             target_state.update_last_bless_time()
-                            logging.info(f"Manual blessing detected in chat {config.target_chat_id}, updating cooldown.")
+                            logging.info(f"Manual blessing detected in user {config.target_user_id}, updating cooldown for chat {target_chat_id}.")
 
         def signal_handler():
             asyncio.create_task(shutdown())
