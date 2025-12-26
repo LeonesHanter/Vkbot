@@ -10,10 +10,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 TELEGRAM_ADMIN_BOT_TOKEN = os.getenv("TELEGRAM_ADMIN_BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("TELEGRAM_ADMIN_CHAT_ID"))
+# Загружаем список админов
+ADMIN_CHAT_IDS_RAW = os.getenv("TELEGRAM_ADMIN_CHAT_IDS", "")
+ADMIN_CHAT_IDS = [int(x.strip()) for x in ADMIN_CHAT_IDS_RAW.split(",") if x.strip().isdigit()]
 
 async def check_auth(update: Update):
-    if update.effective_message.chat_id != ADMIN_CHAT_ID:
+    user_id = update.effective_message.chat_id
+    if user_id not in ADMIN_CHAT_IDS:
         await update.message.reply_text("❌ Access denied.")
         return False
     return True
