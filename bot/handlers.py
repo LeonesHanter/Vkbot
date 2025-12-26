@@ -1,6 +1,6 @@
 import asyncio
 import time
-import logging  # Добавим явно, т.к. используется в _send_blessing
+import logging
 from vkbottle import Message
 from .state import StateManager
 
@@ -41,7 +41,7 @@ class ChatState:
     def is_in_cooldown(self):
         return (time.time() - self.last_bless_time) < self.cooldown
 
-    async def handle_gold_message(self, api, gold_amount: int, original_message_id: int):
+    async def handle_gold_message(self, api, gold_amount: int, original_user_message_id: int):
         queue = self.state_manager.get_queue(self.chat_id)
 
         # Проверяем, в cooldown ли бот
@@ -50,11 +50,11 @@ class ChatState:
             if gold_amount in SPECIAL_GOLD:
                 blessings = SPECIAL_GOLD[gold_amount]
                 for blessing in blessings:
-                    queue.append((blessing, original_message_id))
+                    queue.append((blessing, original_user_message_id))
             else:
                 blessing = GOLD_TO_BLESSING.get(gold_amount)
                 if blessing:
-                    queue.append((blessing, original_message_id))
+                    queue.append((blessing, original_user_message_id))
             logging.info(f"Blessing for {gold_amount} gold added to queue for chat {self.chat_id} due to cooldown.")
         else:
             # Если не в cooldown, обновляем время и отправляем
@@ -62,12 +62,12 @@ class ChatState:
             if gold_amount in SPECIAL_GOLD:
                 blessings = SPECIAL_GOLD[gold_amount]
                 for blessing in blessings:
-                    await self._send_blessing(api, blessing, original_message_id)
+                    await self._send_blessing(api, blessing, original_user_message_id)
                     await asyncio.sleep(self.cooldown)
             else:
                 blessing = GOLD_TO_BLESSING.get(gold_amount)
                 if blessing:
-                    await self._send_blessing(api, blessing, original_message_id)
+                    await self._send_blessing(api, blessing, original_user_message_id)
 
         # Запускаем обработку очереди, если она не запущена
         if queue and not self.state_manager.is_processing(self.chat_id):
@@ -95,10 +95,10 @@ class ChatState:
             await api.messages.send(
                 peer_id=peer_id,
                 message=blessing,
-                forward_messages=[message_id],
+                forward_messages=[message_id],  # Пересылаем оригинальное сообщение пользователя
                 disable_mentions=1,
-                random_id=time.time.time_ns() % 1000000000  # Исправлено
+                random_id=time.time_ns() % 1000000000
             )
-            logging.info(f"Sent blessing '{blessing}' to user {peer_id}")
+            logging.info(f"Sent blessing '{blessing}' to user {peer_id}, forwarded message ID: {message_id}")
         except Exception as e:
             logging.error(f"Failed to send blessing to user {peer_id}: {e}")
