@@ -1,3 +1,1 @@
-"""
-BotBuff VK Bot package
-"""
+# пакет bot
