@@ -2,21 +2,21 @@ import asyncio
 import logging
 import time
 import aiohttp
+import sys
 
-from bot.config import config
+from bot.config import config, state_manager, global_state_manager
 from bot.state import StateManager
 from bot.handlers import handle_all_messages
 from bot.utils import get_long_poll_server, get_message
 from bot.autopost import auto_post_loop
+from bot.telegram_utils import send_tg_alert
+from bot.telegram_bot import telegram_control_loop
 
 logging.basicConfig(
     level=logging.INFO,
     filename=config.log_file,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-
-state_manager = StateManager(config)
-global_state_manager = state_manager
 
 async def process_queue_loop():
     """✅ Тихая очередь + cleanup каждые 5s"""
@@ -44,21 +44,39 @@ async def process_queue_loop():
             logging.error(f"[QUEUE LOOP] {e}")
             await asyncio.sleep(5)
 
+async def graceful_shutdown():
+    """Graceful остановка"""
+    print("[SHUTDOWN] Graceful остановка...")
+    await send_tg_alert(session, "🔴 VkBotBuff остановлен gracefully")
+    sys.exit(0)
+
 async def main():
     print(f"[CONFIG] Bot ID определён: {config.bot_id} (receiver_id: {config.receiver_id})")
     print("[STATE] Инициализация состояний...")
 
     async with aiohttp.ClientSession() as session:
+        global session  # Для telegram_utils
+        
+        # ✅ 4 ПАРАЛЛЕЛЬНЫХ ЦИКЛА
         queue_task = asyncio.create_task(process_queue_loop())
         autopost_task = asyncio.create_task(auto_post_loop(session))
+        telegram_task = asyncio.create_task(
+            telegram_control_loop(
+                session=session,
+                stop_cb=lambda: asyncio.create_task(graceful_shutdown()),
+                restart_cb=lambda: print("[RESTART] Перезапуск...")
+            )
+        )
 
+        # LongPoll VK
         lp = await get_long_poll_server(session, config.token)
         server = lp["server"]
         key = lp["key"]
         ts = lp["ts"]
 
+        await send_tg_alert(session, "🚀 <b>VkBotBuff</b> полностью готов! ✅")
         print(f"[LP] LongPoll подключён: {server}")
-        print("[BOT] ✅ Готов к работе! (Тихий режим)")
+        print("[BOT] ✅ Готов к работе! (ТГ активен)")
 
         while True:
             try:
@@ -82,8 +100,9 @@ async def main():
                     await handle_all_messages(msg, global_state_manager)
 
             except Exception as e:
-                print(f"[LP ERROR] {e}")
-                await asyncio.sleep(5)
+                error_msg = f"[LP ERROR] {e}"
+                print(error_msg)
+                await send_tg_alert(session, f"⚠️ {error_msg}")
 
 if __name__ == "__main__":
     asyncio.run(main())
