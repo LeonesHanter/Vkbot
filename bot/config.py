@@ -10,7 +10,7 @@ load_dotenv()
 class ChatConfig:
     chat_id: int
     enabled: bool = True
-    cooldown: int = 61          # КД между бафами
+    cooldown: int = 61          # КД между бафами в этом чате
     max_requests: int = 100     # запас на будущее
 
 
@@ -35,7 +35,7 @@ class Config:
 
     # времена
     cooldown: int = 61          # базовый КД бафа
-    manual_bless_cd: int = 61   # после ручного бафа
+    manual_bless_cd: int = 61   # доп. КД после ручного бафа
     pending_timeout: int = 15   # ожидание лога после команды
 
     # telegram
@@ -45,7 +45,7 @@ class Config:
 
     # список чатов
     chats: List[ChatConfig] = field(default_factory=lambda: [
-        ChatConfig(chat_id=215, enabled=True, cooldown=10, max_requests=100),
+        ChatConfig(chat_id=215, enabled=True, cooldown=61, max_requests=100),
     ])
 
     def __post_init__(self):
