@@ -1,80 +1,64 @@
+import json
 import time
-import asyncio
-from collections import deque
-from typing import Deque, Dict, Tuple, Callable
+import logging
+from typing import Dict, Optional
+from bot.config import config
 
-
-class ChatState:
-    def __init__(self, chat_id: int, cooldown: int,
-                 pending_timeout: int, max_requests: int):
-        self.chat_id = chat_id
-        self.cooldown = cooldown
-        self.pending_timeout = pending_timeout
-        self.max_requests = max_requests
-
-        self.last_bless_time: float = 0.0
-        self.processing: bool = False
-        self.queue: Deque[Tuple[str, int]] = deque()
-
-        # user_id → (price, msg_id_команды, blessing, created_ts)
-        self.pending: Dict[int, Tuple[int, int, str, float]] = {}
-
-        self.request_count: int = 0
-
-    def update_last_bless_time(self, extra: int = 0) -> None:
-        self.last_bless_time = time.time() + extra
-
-    def is_in_cooldown(self) -> bool:
-        return (time.time() - self.last_bless_time) < self.cooldown
-
-    def add_pending(self, user_id: int, price: int,
-                    msg_id: int, blessing: str) -> None:
-        self.pending[user_id] = (price, msg_id, blessing, time.time())
-
-    def clear_expired_pending(self) -> None:
-        now = time.time()
-        to_delete = [uid for uid, (_, _, _, ts) in self.pending.items()
-                     if now - ts > self.pending_timeout]
-        for uid in to_delete:
-            del self.pending[uid]
-
-    async def handle_blessing(
-        self,
-        blessing: str,
-        msg_id: int,
-        send_func: Callable[[str, int], "asyncio.Future"],
-    ):
-        if self.is_in_cooldown() or self.processing:
-            self.queue.append((blessing, msg_id))
-            print(f"⏳ {blessing} в очереди")
-            return
-
-        self.processing = True
-        try:
-            self.update_last_bless_time()
-            self.request_count += 1
-            await send_func(blessing, msg_id)
-            await asyncio.sleep(self.cooldown)
-        finally:
-            self.processing = False
-            if self.queue:
-                next_bless, next_msg = self.queue.popleft()
-                asyncio.create_task(
-                    self.handle_blessing(next_bless, next_msg, send_func)
-                )
-
+logger = logging.getLogger(__name__)
 
 class StateManager:
     def __init__(self, config):
-        self.chat_states: Dict[int, ChatState] = {}
-        for chat_cfg in config.chats:
-            if chat_cfg.enabled:
-                self.chat_states[chat_cfg.chat_id] = ChatState(
-                    chat_id=chat_cfg.chat_id,
-                    cooldown=chat_cfg.cooldown,
-                    pending_timeout=config.pending_timeout,
-                    max_requests=chat_cfg.max_requests,
-                )
+        self.config = config
+        self.chat_states: Dict[int, 'ChatState'] = {}
+        self.pending_requests: Dict[int, Dict] = {}
 
-    def get_chat_state(self, chat_id: int) -> ChatState:
+    def get_chat_state(self, chat_id: int) -> 'ChatState':
+        if chat_id not in self.chat_states:
+            self.chat_states[chat_id] = ChatState(chat_id)
         return self.chat_states[chat_id]
+
+    def add_pending_request(self, chat_id: int, user_id: int, price: int, msg_id: int, buff_type: str):
+        """Сохраняем запрос 'передать XXX золота'"""
+        self.pending_requests[msg_id] = {
+            'chat_id': chat_id,
+            'user_id': user_id,
+            'price': price,
+            'msg_id': msg_id,
+            'buff_type': buff_type,
+            'timestamp': time.time(),
+            'buff_issued': False
+        }
+        logger.info(f"[PENDING] user={user_id} передаёт {price} → {buff_type}")
+
+    def process_player_payment(self, player_id: int, log_msg_id: int):
+        """✅ НОВАЯ ЛОГИКА: обрабатывает оплату нашему боту"""
+        for req_id, request in list(self.pending_requests.items()):
+            if (request.get('user_id') == player_id and 
+                not request.get('buff_issued')):
+                
+                logger.info(f"[BUFF] ✅ ОПЛАТА ПОДТВЕРЖДЕНА! user={player_id} → {request['buff_type']}")
+                self.issue_buff(request['chat_id'], request)
+                return True
+        return False
+
+    def issue_buff(self, chat_id: int, request: Dict):
+        """Выдаёт баф"""
+        try:
+            buff_type = request['buff_type']
+            user_id = request['user_id']
+            
+            # TODO: вызов VK API для бафа
+            logger.info(f"[BUFF ISSUED] ✅ {buff_type} выдан user={user_id} в чат {chat_id}")
+            request['buff_issued'] = True
+            
+            # Очистка pending
+            self.pending_requests.pop(request['msg_id'], None)
+            
+        except Exception as e:
+            logger.error(f"[BUFF] Ошибка выдачи бафа: {e}")
+
+# Заглушка для ChatState (если нужно)
+class ChatState:
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
+        self.last_buff_time = 0
