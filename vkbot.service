@@ -1,1 +1,20 @@
+[Unit]
+Description=BotBuff Vkbot
+After=network.target
 
+[Service]
+Type=simple
+WorkingDirectory=/home/USER/Vkbot
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/USER/Vkbot/venv/bin/python -m bot.main
+Restart=on-failure
+RestartSec=5
+
+User=USER
+Group=USER
+
+StandardOutput=append:/home/USER/Vkbot/bot.log
+StandardError=append:/home/USER/Vkbot/bot.log
+
+[Install]
+WantedBy=multi-user.target
