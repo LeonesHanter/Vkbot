@@ -48,11 +48,6 @@ async def process_queue_loop():
             logging.error(f"[QUEUE LOOP] {e}")
             await asyncio.sleep(5)
 
-async def graceful_shutdown():
-    """Graceful остановка"""
-    print("[SHUTDOWN] Graceful остановка...")
-    sys.exit(0)
-
 async def main():
     print(f"[CONFIG] Bot ID определён: {config.bot_id} (receiver_id: {config.receiver_id})")
     print("[STATE] Инициализация состояний...")
@@ -61,11 +56,13 @@ async def main():
         # ✅ 4 ПАРАЛЛЕЛЬНЫХ ЦИКЛА
         queue_task = asyncio.create_task(process_queue_loop())
         autopost_task = asyncio.create_task(auto_post_loop(session))
+        
         telegram_task = asyncio.create_task(
             telegram_control_loop(
                 session=session,
-                stop_cb=graceful_shutdown,
-                restart_cb=restart_bot  # ✅ ПОЛНЫЙ ПЕРЕЗАПУСК!
+                stop_cb=lambda: sys.exit(0),
+                restart_cb=restart_bot,
+                _state_manager=global_state_manager  # ✅ ПЕРЕДАЁМ состояние!
             )
         )
 
@@ -75,9 +72,9 @@ async def main():
         key = lp["key"]
         ts = lp["ts"]
 
-        await send_tg_alert(session, "🚀 <b>VkBotBuff</b> полностью готов! ✅")
+        await send_tg_alert(session, "🚀 <b>BotBuff VK Bot</b> запущен!")
         print(f"[LP] LongPoll подключён: {server}")
-        print("[BOT] ✅ Готов к работе! (ТГ: /status /stop /restart)")
+        print("[BOT] ✅ Готов к работе! (ТГ: /start /status /stop /restart)")
 
         while True:
             try:
