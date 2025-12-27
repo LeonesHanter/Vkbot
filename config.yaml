@@ -1,11 +1,1 @@
-source_chat_id: 110
-target_user_id: -183040898  # ID сообщества (отрицательный)
 
-chats:
-  - chat_id: 110
-    cooldown: 61
-    max_requests: 10
-    enabled: true
-
-token: "ваш_токен"  # Это будет заменено из .env
-log_file: "bot.log"
