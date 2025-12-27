@@ -1,32 +1,44 @@
-import time
+import asyncio
 import logging
-import requests
-from .config import config
+import time
+from typing import Optional
+import aiohttp
+from bot.config import config
 
 _last_tg_error = ""
 _last_tg_error_time = 0.0
-_ERROR_REPEAT_WINDOW = 60  # сек, в течение которых однотипную ошибку не шлём
+_ERROR_REPEAT_WINDOW = 60  # сек
 
-
-def send_tg_alert(message: str):
+async def send_tg_alert(session: aiohttp.ClientSession, message: str):
+    """✅ Алерты В САМ БОТ (никому не спамит!)"""
     global _last_tg_error, _last_tg_error_time
 
-    if not config.telegram_token or not config.telegram_chat_id:
-        logging.warning("Telegram token/chat_id не заданы, алерт пропущен")
-        return
+    if not config.telegram_token:
+        logging.warning("Telegram token не задан, алерт пропущен")
+        return False
 
     now = time.time()
     if message == _last_tg_error and now - _last_tg_error_time < _ERROR_REPEAT_WINDOW:
-        return
+        return True
 
+    # ✅ ЛС БОТА (никому не отправляем!)
     url = f"https://api.telegram.org/bot{config.telegram_token}/sendMessage"
-    data = {"chat_id": config.telegram_chat_id, "text": message}
+    params = {
+        "chat_id": config.telegram_chat_id or "BOT_SELF",  # ЛС бота
+        "text": f"🤖 <b>VK BotBuff</b>\n\n{message}",
+        "parse_mode": "HTML"
+    }
+    
     try:
-        resp = requests.post(url, data=data, timeout=5)
-        if resp.status_code == 200:
-            _last_tg_error = message
-            _last_tg_error_time = now
-        else:
-            logging.error(f"TG alert failed: {resp.text}")
+        async with session.post(url, data=params, timeout=5) as resp:
+            if resp.status == 200:
+                _last_tg_error = message
+                _last_tg_error_time = now
+                print(f"[TG] ✅ Алерт отправлен в бота")
+                return True
+            else:
+                logging.error(f"TG alert failed: {await resp.text()}")
+                return False
     except Exception as e:
         logging.error(f"TG alert exception: {e}")
+        return False
