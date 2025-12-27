@@ -9,7 +9,6 @@ _last_tg_error_time = 0.0
 _ERROR_REPEAT_WINDOW = 60
 
 async def send_tg_alert(session: aiohttp.ClientSession, message: str):
-    """✅ Уведомления + ошибки 1 раз в минуту!"""
     global _last_tg_error, _last_tg_error_time
 
     if not config.telegram_token or not config.telegram_chat_id:
