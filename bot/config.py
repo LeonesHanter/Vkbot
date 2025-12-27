@@ -1,117 +1,63 @@
-#!/usr/bin/env python3
-import asyncio
-import sys
-import time
+from dataclasses import dataclass, field
+from typing import List
 import os
-import re
 from dotenv import load_dotenv
-import requests
-from vkbottle import Bot
-
-# Логи ВСЮДА (stdout + файл)
-import logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),  # 🔥 В JOURNALCTL
-        logging.FileHandler('/home/FOK/vk-bots/Vkbot/bot.log')
-    ]
-)
 
 load_dotenv()
-print("🚀 BotBuff ЗАПУЩЕН!")
 
-# Конфиг прямо в коде
-TOKEN = os.getenv("VK_USER_TOKEN")
-if not TOKEN:
-    print("❌ VK_USER_TOKEN не найден!")
-    sys.exit(1)
 
-print(f"✅ Токен: {TOKEN[:15]}...")
-CHAT_ID = 110  # Единственный чат
+@dataclass
+class ChatConfig:
+    chat_id: int
+    enabled: bool = True
+    cooldown: int = 10          # КД между бафами
+    max_requests: int = 100     # запас на будущее
 
-bot = Bot(token=TOKEN)
 
-async def send_buff(peer_id, gold_amount):
-    """Отправляет баф"""
-    try:
-        await bot.api.messages.send(
-            peer_id=peer_id,
-            message=f"💰 Баф за {gold_amount} золота! ✨",
-            random_id=int(time.time() * 1000000)
-        )
-        print(f"✅ БАФ ОТПРАВЛЕН в {peer_id}")
-    except Exception as e:
-        print(f"❌ Ошибка бафа: {e}")
+@dataclass
+class Config:
+    token: str = os.getenv("VK_USER_TOKEN", "")
+    log_file: str = os.getenv("LOG_FILE", "bot.log")
 
-async def process_message(raw_msg):
-    """Обрабатывает сообщение"""
-    peer_id = raw_msg.get('peer_id')
-    text = raw_msg.get('text', '').lower()
-    
-    print(f"📨 peer_id={peer_id} | text='{text[:50]}'")
-    
-    if peer_id == 2000000000 + CHAT_ID and 'получено' in text and 'золота' in text:
-        # Извлекаем число золота
-        numbers = re.findall(r'\d+', text)
-        if numbers:
-            gold = int(numbers[0])
-            print(f"🪙 НАЙДЕНО {gold} ЗОЛОТА!")
-            await send_buff(peer_id, gold)
+    # основной игровой чат
+    main_chat_id: int = 215
+    peer_id: int = field(init=False)
 
-async def long_poll():
-    """Главный цикл Long Poll"""
-    print("🔄 Long Poll сервер...")
-    
-    # Получаем Long Poll сервер
-    lp_server = await bot.api.messages.get_long_poll_server()
-    print(f"📡 Сервер: {lp_server.server}")
-    
-    ts = lp_server.ts
-    key = lp_server.key
-    server = lp_server.server
-    
-    while True:
-        try:
-            # Запрос обновлений
-            url = f"https://{server}"
-            params = {
-                'act': 'a_check',
-                'key': key,
-                'ts': ts,
-                'wait': 25,
-                'mode': 2,
-                'version': 3
-            }
-            
-            response = await bot.api.http_client.request_json(url, params=params)
-            ts = response['ts']
-            
-            for update in response.get('updates', []):
-                if update[0] == 4:  # Новое сообщение
-                    await process_message(update[1])
-                    
-        except Exception as e:
-            print(f"⚠️ Long Poll ошибка: {e}")
-            await asyncio.sleep(3)
+    # бот/сообщество логов золота
+    system_bot_id: int = -183040898
+    source_chat_id: int = 215          # если логи в этом же чате
 
-async def main():
-    print("🎯 Ожидаю золото в чате 110...")
-    await long_poll()
+    # чат/ЛС с сообществом, где вручную жмут бафы
+    community_peer_id: int = -183040898
 
-def run_bot():
-    """Для systemd"""
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        print("🛑 Остановка")
-    finally:
-        print("👋 До свидания!")
+    # id нашего аккаунта (опционально, можно определить по первым сообщениям)
+    bot_id: int = 0
 
-if __name__ == "__main__":
-    asyncio.run(main())
-else:
-    run_bot()
+    # времена
+    cooldown: int = 10          # базовый КД бафа
+    manual_bless_cd: int = 61   # после ручного бафа
+    pending_timeout: int = 15   # ожидание лога после команды
+
+    # telegram
+    telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    telegram_admin_ids: List[int] = field(default_factory=list)
+
+    # список чатов
+    chats: List[ChatConfig] = field(default_factory=lambda: [
+        ChatConfig(chat_id=215, enabled=True, cooldown=10, max_requests=100),
+    ])
+
+    def __post_init__(self):
+        if not self.token:
+            raise ValueError("VK_USER_TOKEN не найден в .env")
+        self.peer_id = 2000000000 + self.main_chat_id
+
+        admins = os.getenv("TELEGRAM_ADMIN_IDS", "")
+        if admins:
+            self.telegram_admin_ids = [
+                int(a.strip()) for a in admins.split(",") if a.strip().isdigit()
+            ]
+
+
+config = Config()
