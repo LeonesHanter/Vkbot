@@ -19,19 +19,16 @@ class Config:
 
     main_chat_id: int = 7
     peer_id: int = field(init=False)
-
+    
+    # ✅ Бот ID автоопределяется при старте
     system_bot_id: int = -183040898
     source_chat_id: int = 7
-    
     community_peer_id: int = -183040898
-    bot_id: int = 0
+    bot_id: int = 0  # ← будет определён автоматически
 
     cooldown: int = 61
     manual_bless_cd: int = 61
-    pending_timeout: int = 30  # увеличено
-
-    # ✅ НОВОЕ: 10% комиссия системного бота
-    gold_commission: float = 0.9
+    pending_timeout: int = 30
 
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
