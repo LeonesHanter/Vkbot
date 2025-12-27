@@ -21,13 +21,13 @@ async def telegram_control_loop(
     restart_cb: Callable[[], None]
 ):
     """
-    /status  – статус бота
-    /stop    – graceful stop
-    /restart – ПОЛНЫЙ перезапуск процесса!
-    Только для admin_ids в TELEGRAM_CHAT_ID
+    ✅ КОМАНДЫ ТОЛЬКО ДЛЯ АДМИНОВ в ЛС бота!
+    /status  – статус + очереди
+    /stop    – graceful stop  
+    /restart – полный перезапуск
     """
-    if not config.telegram_token or not config.telegram_chat_id:
-        logging.info("TG control disabled (no token/chat id)")
+    if not config.telegram_token:
+        logging.info("TG control disabled (no token)")
         return
 
     offset: Optional[int] = None
@@ -58,16 +58,34 @@ async def telegram_control_loop(
                 from_id = msg["from"]["id"]
                 text = msg.get("text", "").strip().lower()
 
-                # ✅ Только нужный чат + админы
-                if chat_id != int(config.telegram_chat_id):
+                # ✅ ТОЛЬКО ЛС БОТА + АДМИНЫ!
+                if chat_id != int(config.telegram_chat_id or 0):
                     continue
                 if from_id not in config.telegram_admin_ids:
+                    await _api_call(session, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": "❌ Доступ запрещён! Только для админов.",
+                    })
                     continue
 
-                # ✅ КОМАНДЫ
-                if text == "/status":
+                # ✅ КОМАНДЫ (ТОЛЬКО АДМИНЫ)
+                if text == "/start":
+                    await _api_call(session, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": (
+                            "🤖 <b>VkBotBuff Control</b>\n\n"
+                            "<b>Команды:</b>\n"
+                            "• /status - статус бота\n"
+                            "• /stop - остановить\n"
+                            "• /restart - перезапуск\n\n"
+                            "⚔️ Готов к работе!"
+                        ),
+                        "parse_mode": "HTML"
+                    })
+
+                elif text == "/status":
                     queue_info = []
-                    for chat_id_num in state_manager.chat_states:
+                    for chat_id_num in list(state_manager.chat_states.keys()):
                         chat_state = state_manager.get_chat_state(chat_id_num)
                         queue_len = len(state_manager.request_queues.get(chat_id_num, []))
                         cd_left = max(0, config.cooldown - (time.time() - chat_state.last_buff_time))
@@ -75,7 +93,7 @@ async def telegram_control_loop(
                     
                     status_text = (
                         "🟢 <b>VkBotBuff STATUS</b>\n\n"
-                        f"🤖 Bot ID: <code>{config.bot_id}</code>\n"
+                        f"🤖 ID: <code>{config.bot_id}</code>\n"
                         f"💬 Чаты: <code>{len(state_manager.chat_states)}</code>\n"
                         f"📊 <code>" + "\n".join(queue_info) + "</code>"
                     )
@@ -100,10 +118,7 @@ async def telegram_control_loop(
                         "text": "♻️ <b>Перезапуск VkBotBuff</b>… (2 сек)",
                         "parse_mode": "HTML"
                     })
-                    
                     await send_tg_alert(session, "🔄 VkBotBuff <b>ПЕРЕЗАПУСК</b>…")
-                    
-                    # ✅ ПОЛНЫЙ ПЕРЕЗАПУСК ПРОЦЕССА!
                     restart_cb()
 
         except asyncio.CancelledError:
@@ -113,9 +128,7 @@ async def telegram_control_loop(
             await asyncio.sleep(5)
 
 def restart_bot():
-    """✅ ПОЛНЫЙ ПЕРЕЗАПУСК: os.execv(sys.executable, ['python', '-m', 'bot.main'])"""
+    """✅ ПОЛНЫЙ ПЕРЕЗАПУСК процесса"""
     print("[RESTART] Полный перезапуск бота...")
     logging.info("[RESTART] Полный перезапуск бота...")
-    
-    # Заменяем текущий процесс новым
     os.execv(sys.executable, [sys.executable, '-m', 'bot.main'])
