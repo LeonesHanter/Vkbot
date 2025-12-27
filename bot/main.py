@@ -23,7 +23,7 @@ state_manager = StateManager(config)
 global_state_manager = state_manager
 
 async def process_queue_loop():
-    """✅ Тихая очередь + cleanup каждые 5s"""
+    """Тихая очередь + cleanup каждые 5s"""
     while True:
         try:
             cleaned = global_state_manager.cleanup_expired_pending()
@@ -50,23 +50,19 @@ async def process_queue_loop():
 
 async def main():
     print(f"[CONFIG] Bot ID определён: {config.bot_id} (receiver_id: {config.receiver_id})")
-    print("[STATE] Инициализация состояний...")
 
     async with aiohttp.ClientSession() as session:
-        # ✅ 4 ПАРАЛЛЕЛЬНЫХ ЦИКЛА
         queue_task = asyncio.create_task(process_queue_loop())
         autopost_task = asyncio.create_task(auto_post_loop(session))
-        
         telegram_task = asyncio.create_task(
             telegram_control_loop(
                 session=session,
                 stop_cb=lambda: sys.exit(0),
                 restart_cb=restart_bot,
-                _state_manager=global_state_manager  # ✅ ПЕРЕДАЁМ состояние!
+                _state_manager=global_state_manager
             )
         )
 
-        # LongPoll VK
         lp = await get_long_poll_server(session, config.token)
         server = lp["server"]
         key = lp["key"]
@@ -86,7 +82,6 @@ async def main():
                 for update in data.get("updates", []):
                     if update[0] != 4:
                         continue
-
                     payload = update[1]
                     if isinstance(payload, int):
                         msg = await get_message(session, config.token, payload)
@@ -94,7 +89,6 @@ async def main():
                             continue
                     else:
                         msg = payload
-
                     await handle_all_messages(msg, global_state_manager)
 
             except Exception as e:
