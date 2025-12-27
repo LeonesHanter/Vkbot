@@ -10,7 +10,7 @@ load_dotenv()
 class ChatConfig:
     chat_id: int
     enabled: bool = True
-    cooldown: int = 10          # КД между бафами
+    cooldown: int = 61          # КД между бафами
     max_requests: int = 100     # запас на будущее
 
 
@@ -34,7 +34,7 @@ class Config:
     bot_id: int = 0
 
     # времена
-    cooldown: int = 10          # базовый КД бафа
+    cooldown: int = 61          # базовый КД бафа
     manual_bless_cd: int = 61   # после ручного бафа
     pending_timeout: int = 15   # ожидание лога после команды
 
