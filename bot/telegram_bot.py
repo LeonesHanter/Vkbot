@@ -1,25 +1,26 @@
 import asyncio
 import logging
-from typing import Optional
-
+from typing import Callable, Optional
 import aiohttp
-
-from .config import config
-from .telegram_utils import send_tg_alert
-
+from bot.config import config
+from bot.telegram_utils import send_tg_alert
 
 async def _api_call(session: aiohttp.ClientSession, method: str, params: dict):
+    """Внутренний API вызов"""
     url = f"https://api.telegram.org/bot{config.telegram_token}/{method}"
     async with session.get(url, params=params) as resp:
         return await resp.json()
 
-
-async def telegram_control_loop(stop_cb, restart_cb):
+async def telegram_control_loop(
+    session: aiohttp.ClientSession,
+    stop_cb: Callable[[], None],
+    restart_cb: Callable[[], None]
+):
     """
-    /status  – статус
-    /stop    – стоп
-    /restart – сейчас такая же логика как stop_cb
-    Доступ только admin_ids и только в TELEGRAM_CHAT_ID.
+    /status  – статус бота
+    /stop    – graceful stop
+    /restart – перезапуск
+    Только для admin_ids в TELEGRAM_CHAT_ID
     """
     if not config.telegram_token or not config.telegram_chat_id:
         logging.info("TG control disabled (no token/chat id)")
@@ -27,70 +28,79 @@ async def telegram_control_loop(stop_cb, restart_cb):
 
     offset: Optional[int] = None
     logging.info("Telegram control loop started")
-    send_tg_alert("🟢 Telegram control loop started")
+    await send_tg_alert(session, "🟢 <b>VkBotBuff</b> запущен! ✅")
 
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                params = {"timeout": 25}
-                if offset is not None:
-                    params["offset"] = offset
-                data = await _api_call(session, "getUpdates", params)
+    while True:
+        try:
+            params = {"timeout": 25}
+            if offset is not None:
+                params["offset"] = offset
+                
+            data = await _api_call(session, "getUpdates", params)
 
-                if not data.get("ok"):
-                    logging.error(f"TG getUpdates error: {data}")
-                    await asyncio.sleep(5)
+            if not data.get("ok"):
+                logging.error(f"TG getUpdates error: {data}")
+                await asyncio.sleep(5)
+                continue
+
+            for upd in data.get("result", []):
+                offset = upd["update_id"] + 1
+
+                msg = upd.get("message") or upd.get("edited_message")
+                if not msg:
                     continue
 
-                for upd in data.get("result", []):
-                    offset = upd["update_id"] + 1
+                chat_id = msg["chat"]["id"]
+                from_id = msg["from"]["id"]
+                text = msg.get("text", "").strip().lower()
 
-                    msg = upd.get("message") or upd.get("edited_message")
-                    if not msg:
-                        continue
+                # ✅ Только нужный чат + админы
+                if chat_id != int(config.telegram_chat_id):
+                    continue
+                if from_id not in config.telegram_admin_ids:
+                    continue
 
-                    chat_id = msg["chat"]["id"]
-                    from_id = msg["from"]["id"]
-                    text = msg.get("text", "")
+                # ✅ КОМАНДЫ
+                if text == "/status":
+                    queue_info = []
+                    for chat_id in state_manager.chat_states:
+                        chat_state = state_manager.get_chat_state(chat_id)
+                        queue_len = len(state_manager.request_queues.get(chat_id, []))
+                        cd_left = max(0, config.cooldown - (time.time() - chat_state.last_buff_time))
+                        queue_info.append(f"чат {chat_id}: CD={cd_left:.0f}s | очередь={queue_len}")
+                    
+                    status_text = (
+                        "🟢 <b>VkBotBuff STATUS</b>\n\n"
+                        f"Bot ID: <code>{config.bot_id}</code>\n"
+                        f"Чаты: {len(state_manager.chat_states)}\n"
+                        f"<code>" + "\n".join(queue_info) + "</code>"
+                    )
+                    await _api_call(session, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": status_text,
+                        "parse_mode": "HTML"
+                    })
 
-                    if chat_id != int(config.telegram_chat_id):
-                        continue
-                    if from_id not in config.telegram_admin_ids:
-                        continue
+                elif text == "/stop":
+                    await _api_call(session, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": "⛔ <b>Останавливаю VkBotBuff</b>…",
+                        "parse_mode": "HTML"
+                    })
+                    await send_tg_alert(session, "🔴 VkBotBuff остановлен по команде /stop")
+                    stop_cb()
 
-                    cmd = text.strip().lower()
-                    if cmd == "/status":
-                        await _api_call(
-                            session,
-                            "sendMessage",
-                            {
-                                "chat_id": chat_id,
-                                "text": "Vkbot: работаю ✅",
-                            },
-                        )
-                    elif cmd == "/stop":
-                        await _api_call(
-                            session,
-                            "sendMessage",
-                            {
-                                "chat_id": chat_id,
-                                "text": "Останавливаю Vkbot… ⛔",
-                            },
-                        )
-                        await stop_cb()
-                    elif cmd == "/restart":
-                        await _api_call(
-                            session,
-                            "sendMessage",
-                            {
-                                "chat_id": chat_id,
-                                "text": "Перезапуск Vkbot… ♻️",
-                            },
-                        )
-                        await restart_cb()
+                elif text == "/restart":
+                    await _api_call(session, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": "♻️ <b>Перезапуск VkBotBuff</b>…",
+                        "parse_mode": "HTML"
+                    })
+                    await send_tg_alert(session, "🔄 VkBotBuff перезапуск...")
+                    restart_cb()
 
-            except Exception as e:
-                logging.error(f"TG control error: {e}")
-                await asyncio.sleep(5)
-
-
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logging.error(f"TG control error: {e}")
+            await asyncio.sleep(5)
